@@ -4,7 +4,9 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "postinstall": "npx prisma generate",
+    "build": "echo \"(backend sin build)\""
   },
   "keywords": [],
   "author": "",

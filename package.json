@@ -1,0 +1,8 @@
+{
+  "name": "bonaven-repo",
+  "private": true,
+  "devDependencies": {},
+  "lint-staged": {
+    "*.{js,jsx,json,css,md}": "prettier --write"
+  }
+}

@@ -1,0 +1,3 @@
+- [ ] Compila frontend
+- [ ] Compila backend
+- [ ] Migraciones (si aplica)

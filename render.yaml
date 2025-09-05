@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: bonaven-api
+    env: node
+    rootDir: backend
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy
+    startCommand: npm start
+    autoDeploy: true
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: WEB_ORIGIN
+        value: https://bonaven-frontend.vercel.app
