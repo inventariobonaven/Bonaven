@@ -1,0 +1,35 @@
+# Node / monorepo
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Builds / caches
+dist/
+build/
+coverage/
+.cache/
+
+# IDE / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Env (no subir secretos)
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+
+# Prisma (generados) — sube schema/migrations pero no el cliente generado
+backend/src/generated/prisma/
+
+# SQLite local (si aplica)
+*.sqlite
+*.sqlite-journal
+
+# Vite
+frontend/.vite/
