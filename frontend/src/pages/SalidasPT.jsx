@@ -1,29 +1,29 @@
 // src/pages/SalidasPT.jsx
-import { useEffect, useMemo, useState } from "react";
-import api from "../api/client";
+import { useEffect, useMemo, useState } from 'react';
+import api from '../api/client';
 
 /* ====== UI helpers (mismo estilo) ====== */
-function Toast({ type = "success", message, onClose }) {
+function Toast({ type = 'success', message, onClose }) {
   if (!message) return null;
   return (
     <div
       className="card"
       style={{
-        position: "fixed",
+        position: 'fixed',
         right: 16,
         bottom: 16,
         zIndex: 1000,
-        borderColor: type === "error" ? "#ffccc7" : "var(--border)",
-        background: type === "error" ? "#fff2f0" : "#f6ffed",
+        borderColor: type === 'error' ? '#ffccc7' : 'var(--border)',
+        background: type === 'error' ? '#fff2f0' : '#f6ffed',
       }}
       role="alert"
     >
-      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        <strong style={{ color: type === "error" ? "#a8071a" : "#237804" }}>
-          {type === "error" ? "Error" : "Listo"}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <strong style={{ color: type === 'error' ? '#a8071a' : '#237804' }}>
+          {type === 'error' ? 'Error' : 'Listo'}
         </strong>
         <span>{message}</span>
-        <button className="btn-outline" onClick={onClose} style={{ width: "auto" }}>
+        <button className="btn-outline" onClick={onClose} style={{ width: 'auto' }}>
           Cerrar
         </button>
       </div>
@@ -36,20 +36,20 @@ function Modal({ open, title, children, onClose }) {
   return (
     <div
       style={{
-        position: "fixed",
+        position: 'fixed',
         inset: 0,
-        background: "rgba(0,0,0,0.2)",
-        display: "grid",
-        placeItems: "center",
+        background: 'rgba(0,0,0,0.2)',
+        display: 'grid',
+        placeItems: 'center',
         zIndex: 999,
         padding: 12,
       }}
       onClick={onClose}
     >
       <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0 }}>{title}</h3>
-          <button className="btn-outline" onClick={onClose} style={{ width: "auto" }}>
+          <button className="btn-outline" onClick={onClose} style={{ width: 'auto' }}>
             ✕
           </button>
         </div>
@@ -59,17 +59,37 @@ function Modal({ open, title, children, onClose }) {
   );
 }
 
+/* ===== Helpers de formato ===== */
+function toInt(n) {
+  const x = Number(n);
+  return Number.isFinite(x) ? Math.round(x) : 0;
+}
+
+function formatCantidadLote(l) {
+  const etapa = String(l.etapa || '').toUpperCase();
+  const uds = toInt(l.cantidad);
+  const uxe = Number(l.productos_terminados?.unidades_por_empaque || 0);
+  if ((etapa === 'EMPAQUE' || etapa === 'HORNEO') && uxe > 0) {
+    const pkg = Math.floor(uds / uxe);
+    const rest = uds % uxe;
+    if (pkg > 0 && rest > 0) return `${pkg} pkg + ${rest} ud (${uds} ud)`;
+    if (pkg > 0) return `${pkg} pkg (${uds} ud)`;
+    return `${rest} ud`;
+  }
+  return `${uds} ud`;
+}
+
 /* ====== Modal de registro de Salida PT ====== */
 const emptySalida = {
-  producto_id: "",
-  modo: "FIFO", // FIFO | LOTE
-  lote_id: "",
-  venderPor: "UNIDADES", // UNIDADES | PAQUETES
-  cantidad: "", // unidades
-  paquetes: "", // paquetes
-  etapa_preferida: "", // "", "EMPAQUE", "HORNEO" (solo para FIFO)
+  producto_id: '',
+  modo: 'FIFO', // FIFO | LOTE
+  lote_id: '',
+  venderPor: 'UNIDADES', // UNIDADES | PAQUETES
+  cantidad: '', // unidades
+  paquetes: '', // paquetes
+  etapa_preferida: '', // "", "EMPAQUE", "HORNEO" (solo para FIFO)
   fecha: new Date().toISOString().slice(0, 10),
-  motivo: "",
+  motivo: '',
 };
 
 function SalidaPTForm({
@@ -83,6 +103,12 @@ function SalidaPTForm({
   const [form, setForm] = useState(initial);
   useEffect(() => setForm(initial), [initial]);
 
+  // Collator ES para ordenar alfabeticamente (ignora acentos/mayúsculas, orden natural)
+  const collatorEs = useMemo(
+    () => new Intl.Collator('es', { sensitivity: 'base', numeric: true }),
+    [],
+  );
+
   // producto seleccionado (para unidades_por_empaque)
   const prodSel =
     Array.isArray(productos) && productos.find((p) => String(p.id) === String(form.producto_id));
@@ -91,42 +117,38 @@ function SalidaPTForm({
   const isEnteroPositivo = (v) => Number.isInteger(Number(v)) && Number(v) > 0;
 
   const canSubmit =
-    String(form.producto_id || "") !== "" &&
-    String(form.fecha || "") !== "" &&
-    (
-      form.modo === "LOTE"
-        ? // Modo LOTE: requiere lote_id y cantidad o paquetes válidos
-          String(form.lote_id || "") !== "" &&
-          (
-            (form.venderPor === "UNIDADES" && isEnteroPositivo(form.cantidad)) ||
-            (form.venderPor === "PAQUETES" && isEnteroPositivo(form.paquetes) && unidadesPorEmpaque > 0)
-          )
-        : // Modo FIFO
-          (
-            (form.venderPor === "UNIDADES" && isEnteroPositivo(form.cantidad)) ||
-            (form.venderPor === "PAQUETES" && isEnteroPositivo(form.paquetes) && unidadesPorEmpaque > 0)
-          )
-    );
+    String(form.producto_id || '') !== '' &&
+    String(form.fecha || '') !== '' &&
+    (form.modo === 'LOTE'
+      ? String(form.lote_id || '') !== '' &&
+        ((form.venderPor === 'UNIDADES' && isEnteroPositivo(form.cantidad)) ||
+          (form.venderPor === 'PAQUETES' &&
+            isEnteroPositivo(form.paquetes) &&
+            unidadesPorEmpaque > 0))
+      : (form.venderPor === 'UNIDADES' && isEnteroPositivo(form.cantidad)) ||
+        (form.venderPor === 'PAQUETES' &&
+          isEnteroPositivo(form.paquetes) &&
+          unidadesPorEmpaque > 0));
 
   function handleChange(e) {
     const { name, value } = e.target;
 
-    if (name === "producto_id") {
-      setForm((f) => ({ ...f, producto_id: value, lote_id: "" }));
+    if (name === 'producto_id') {
+      setForm((f) => ({ ...f, producto_id: value, lote_id: '' }));
       onChangeProducto(value);
       return;
     }
 
-    if (name === "modo") {
-      setForm((f) => ({ ...f, modo: value, lote_id: value === "FIFO" ? "" : f.lote_id }));
+    if (name === 'modo') {
+      setForm((f) => ({ ...f, modo: value, lote_id: value === 'FIFO' ? '' : f.lote_id }));
       return;
     }
 
-    if (name === "venderPor") {
+    if (name === 'venderPor') {
       setForm((f) =>
-        value === "UNIDADES"
-          ? { ...f, venderPor: value, paquetes: "" }
-          : { ...f, venderPor: value, cantidad: "" }
+        value === 'UNIDADES'
+          ? { ...f, venderPor: value, paquetes: '' }
+          : { ...f, venderPor: value, cantidad: '' },
       );
       return;
     }
@@ -138,18 +160,15 @@ function SalidaPTForm({
     e.preventDefault();
     if (!canSubmit) return;
 
-    // Construimos el payload según modo:
-    if (form.modo === "LOTE") {
-      // LOTE manual: enviamos lote_id y cantidad (si vienen paquetes, convertimos)
+    if (form.modo === 'LOTE') {
       const cantidadUnidades =
-        form.venderPor === "UNIDADES"
+        form.venderPor === 'UNIDADES'
           ? Number(form.cantidad)
           : Number(form.paquetes) * unidadesPorEmpaque;
 
       if (!(cantidadUnidades > 0)) return;
 
       onSubmit({
-        // NO enviamos producto_id para que el backend use el lote explícito
         lote_id: Number(form.lote_id),
         cantidad: String(cantidadUnidades),
         fecha: form.fecha,
@@ -158,7 +177,6 @@ function SalidaPTForm({
       return;
     }
 
-    // FIFO: enviamos producto_id y o bien cantidad (unidades) o paquetes (para que el backend calcule)
     const base = {
       producto_id: Number(form.producto_id),
       fecha: form.fecha,
@@ -166,19 +184,33 @@ function SalidaPTForm({
     };
 
     const payload =
-      form.venderPor === "UNIDADES"
+      form.venderPor === 'UNIDADES'
         ? { ...base, cantidad: String(Number(form.cantidad)) }
         : { ...base, paquetes: Number(form.paquetes) };
 
-    if (form.etapa_preferida === "EMPAQUE" || form.etapa_preferida === "HORNEO") {
+    if (form.etapa_preferida === 'EMPAQUE' || form.etapa_preferida === 'HORNEO') {
       payload.etapa_preferida = form.etapa_preferida;
     }
 
     onSubmit(payload);
   }
 
-  const prodOpts = Array.isArray(productos) ? productos : [];
-  const lotesOpts = Array.isArray(lotesDisponibles) ? lotesDisponibles : [];
+  // Opciones ORDENADAS
+  const prodOpts = useMemo(
+    () =>
+      [...(Array.isArray(productos) ? productos : [])].sort((a, b) =>
+        collatorEs.compare(String(a?.nombre || '').trim(), String(b?.nombre || '').trim()),
+      ),
+    [productos, collatorEs],
+  );
+
+  const lotesOpts = useMemo(
+    () =>
+      [...(Array.isArray(lotesDisponibles) ? lotesDisponibles : [])].sort((a, b) =>
+        collatorEs.compare(String(a?.codigo || ''), String(b?.codigo || '')),
+      ),
+    [lotesDisponibles, collatorEs],
+  );
 
   return (
     <form onSubmit={submit}>
@@ -193,11 +225,11 @@ function SalidaPTForm({
               </option>
             ))}
           </select>
-          {form.venderPor === "PAQUETES" && (
+          {form.venderPor === 'PAQUETES' && (
             <div className="muted" style={{ marginTop: 4 }}>
               {unidadesPorEmpaque > 0
                 ? `1 paquete = ${unidadesPorEmpaque} uds`
-                : "Este producto no tiene unidades por empaque configuradas"}
+                : 'Este producto no tiene unidades por empaque configuradas'}
             </div>
           )}
         </div>
@@ -210,7 +242,7 @@ function SalidaPTForm({
           </select>
         </div>
 
-        {form.modo === "LOTE" && (
+        {form.modo === 'LOTE' && (
           <div>
             <label>Lote disponible</label>
             <select
@@ -223,14 +255,15 @@ function SalidaPTForm({
               <option value="">— Seleccione —</option>
               {lotesOpts.map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.codigo} · {l.cantidad} ud{l.fecha_ingreso ? ` (ing: ${String(l.fecha_ingreso).slice(0, 10)})` : ""}
+                  {l.codigo} · {formatCantidadLote(l)}
+                  {l.fecha_ingreso ? ` (ing: ${String(l.fecha_ingreso).slice(0, 10)})` : ''}
                 </option>
               ))}
             </select>
           </div>
         )}
 
-        {form.modo === "FIFO" && (
+        {form.modo === 'FIFO' && (
           <div>
             <label>Etapa preferida</label>
             <select
@@ -254,7 +287,7 @@ function SalidaPTForm({
           </select>
         </div>
 
-        {form.venderPor === "UNIDADES" ? (
+        {form.venderPor === 'UNIDADES' ? (
           <div>
             <label>Cantidad (unidades)</label>
             <input
@@ -303,9 +336,9 @@ function SalidaPTForm({
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
         <button className="btn-primary" disabled={!canSubmit || submitting}>
-          {submitting ? "Guardando…" : "Registrar salida"}
+          {submitting ? 'Guardando…' : 'Registrar salida'}
         </button>
       </div>
     </form>
@@ -323,21 +356,21 @@ export default function SalidasPT() {
   const [lotesDeProducto, setLotesDeProducto] = useState([]); // lotes DISPONIBLES para el form
   const [loadingLotesForm, setLoadingLotesForm] = useState(false);
 
-  const [filters, setFilters] = useState({ q: "", producto_id: "" });
+  const [filters, setFilters] = useState({ q: '', producto_id: '' });
 
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const [toast, setToast] = useState({ type: "success", message: "" });
+  const [toast, setToast] = useState({ type: 'success', message: '' });
 
   async function loadProductos() {
     setLoadingProductos(true);
     try {
-      const { data } = await api.get("/productos?estado=true");
+      const { data } = await api.get('/productos?estado=true');
       setProductos(Array.isArray(data) ? data : []);
     } catch {
       setProductos([]);
-      setToast({ type: "error", message: "No se pudieron cargar productos" });
+      setToast({ type: 'error', message: 'No se pudieron cargar productos' });
     } finally {
       setLoadingProductos(false);
     }
@@ -347,20 +380,20 @@ export default function SalidasPT() {
     setLoadingLotes(true);
     try {
       const params = new URLSearchParams();
-      if (filters.q.trim()) params.set("q", filters.q.trim());
-      if (filters.producto_id) params.set("producto_id", String(filters.producto_id));
-      // Traemos todos y filtramos vendibles en UI (EMPAQUE/HORNEO)
+      if (filters.q.trim()) params.set('q', filters.q.trim());
+      if (filters.producto_id) params.set('producto_id', String(filters.producto_id));
       const { data } = await api.get(`/pt/lotes?${params.toString()}`);
       const arr = Array.isArray(data) ? data : [];
       const vendibles = arr.filter(
         (l) =>
-          l.estado === "DISPONIBLE" &&
-          (String(l.etapa).toUpperCase() === "EMPAQUE" || String(l.etapa).toUpperCase() === "HORNEO")
+          l.estado === 'DISPONIBLE' &&
+          (String(l.etapa).toUpperCase() === 'EMPAQUE' ||
+            String(l.etapa).toUpperCase() === 'HORNEO'),
       );
       setLotes(vendibles);
     } catch {
       setLotes([]);
-      setToast({ type: "error", message: "No se pudieron cargar lotes" });
+      setToast({ type: 'error', message: 'No se pudieron cargar lotes' });
     } finally {
       setLoadingLotes(false);
     }
@@ -388,8 +421,9 @@ export default function SalidasPT() {
       const arr = Array.isArray(data) ? data : [];
       const vendibles = arr.filter(
         (l) =>
-          l.estado === "DISPONIBLE" &&
-          (String(l.etapa).toUpperCase() === "EMPAQUE" || String(l.etapa).toUpperCase() === "HORNEO")
+          l.estado === 'DISPONIBLE' &&
+          (String(l.etapa).toUpperCase() === 'EMPAQUE' ||
+            String(l.etapa).toUpperCase() === 'HORNEO'),
       );
       setLotesDeProducto(vendibles);
     } catch {
@@ -402,15 +436,17 @@ export default function SalidasPT() {
   async function registrarSalida(payload) {
     setSubmitting(true);
     try {
-      // OJO: endpoint en singular, consistente con el controlador del backend
-      await api.post("/pt/salidas", payload);
-      setToast({ type: "success", message: "Salida registrada" });
+      await api.post('/pt/salidas', payload);
+      setToast({ type: 'success', message: 'Salida registrada' });
       setModalOpen(false);
-      await Promise.all([loadLotes(), filters.producto_id ? onChangeProductoForm(filters.producto_id) : Promise.resolve()]);
+      await Promise.all([
+        loadLotes(),
+        filters.producto_id ? onChangeProductoForm(filters.producto_id) : Promise.resolve(),
+      ]);
     } catch (e) {
       setToast({
-        type: "error",
-        message: e?.response?.data?.message || "No se pudo registrar la salida",
+        type: 'error',
+        message: e?.response?.data?.message || 'No se pudo registrar la salida',
       });
     } finally {
       setSubmitting(false);
@@ -437,11 +473,26 @@ export default function SalidasPT() {
     });
   }, [filtered]);
 
+  // Collator y listas ORDENADAS para selects de filtro
+  const collatorEs = useMemo(
+    () => new Intl.Collator('es', { sensitivity: 'base', numeric: true }),
+    [],
+  );
+  const productosOrdenados = useMemo(
+    () =>
+      [...(productos || [])].sort((a, b) =>
+        collatorEs.compare(String(a?.nombre || '').trim(), String(b?.nombre || '').trim()),
+      ),
+    [productos, collatorEs],
+  );
+
   const header = (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div>
         <h2 style={{ margin: 0 }}>Salidas de Producto Terminado</h2>
-        <div className="muted">Registra salidas por FIFO o por lote (manual). También puedes vender por paquetes.</div>
+        <div className="muted">
+          Registra salidas por FIFO o por lote (manual). También puedes vender por paquetes.
+        </div>
       </div>
       <button
         className="btn-primary"
@@ -449,7 +500,7 @@ export default function SalidasPT() {
           setModalOpen(true);
           setLotesDeProducto([]);
         }}
-        style={{ width: "auto" }}
+        style={{ width: 'auto' }}
       >
         + Registrar salida
       </button>
@@ -464,7 +515,7 @@ export default function SalidasPT() {
         {/* Filtros */}
         <div
           className="filters"
-          style={{ marginTop: 12, display: "grid", gap: 8, gridTemplateColumns: "1fr 240px" }}
+          style={{ marginTop: 12, display: 'grid', gap: 8, gridTemplateColumns: '1fr 240px' }}
         >
           <input
             placeholder="Buscar por código o producto…"
@@ -476,7 +527,7 @@ export default function SalidasPT() {
             onChange={(e) => setFilters((f) => ({ ...f, producto_id: e.target.value }))}
           >
             <option value="">Todos los productos</option>
-            {productos.map((p) => (
+            {productosOrdenados.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.nombre}
               </option>
@@ -492,7 +543,7 @@ export default function SalidasPT() {
                 <th style={{ width: 80 }}>ID</th>
                 <th>Producto</th>
                 <th>Código lote</th>
-                <th style={{ textAlign: "right" }}>Cantidad</th>
+                <th style={{ textAlign: 'right' }}>Cantidad</th>
                 <th>Ingreso</th>
                 <th>Vence</th>
                 <th>Estado</th>
@@ -509,7 +560,7 @@ export default function SalidasPT() {
               )}
               {!loadingLotes && sorted.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ padding: 14, textAlign: "center" }}>
+                  <td colSpan={8} style={{ padding: 14, textAlign: 'center' }}>
                     Sin resultados
                   </td>
                 </tr>
@@ -518,25 +569,25 @@ export default function SalidasPT() {
                 sorted.map((l) => (
                   <tr key={l.id}>
                     <td>{l.id}</td>
-                    <td>{l.productos_terminados?.nombre || "-"}</td>
+                    <td>{l.productos_terminados?.nombre || '-'}</td>
                     <td>{l.codigo}</td>
-                    <td style={{ textAlign: "right" }}>{l.cantidad}</td>
+                    <td style={{ textAlign: 'right' }}>{formatCantidadLote(l)}</td>
                     <td>{l.fecha_ingreso?.slice(0, 10)}</td>
-                    <td>{l.fecha_vencimiento?.slice(0, 10) || "—"}</td>
+                    <td>{l.fecha_vencimiento?.slice(0, 10) || '—'}</td>
                     <td>
                       <span
                         className="badge"
                         style={{
-                          background: l.estado === "DISPONIBLE" ? "#f6ffed" : "#fff2f0",
-                          border: "1px solid",
-                          borderColor: l.estado === "DISPONIBLE" ? "#b7eb8f" : "#ffccc7",
-                          color: l.estado === "DISPONIBLE" ? "#237804" : "#a8071a",
+                          background: l.estado === 'DISPONIBLE' ? '#f6ffed' : '#fff2f0',
+                          border: '1px solid',
+                          borderColor: l.estado === 'DISPONIBLE' ? '#b7eb8f' : '#ffccc7',
+                          color: l.estado === 'DISPONIBLE' ? '#237804' : '#a8071a',
                         }}
                       >
                         {l.estado}
                       </span>
                     </td>
-                    <td>{String(l.etapa || "").toUpperCase()}</td>
+                    <td>{String(l.etapa || '').toUpperCase()}</td>
                   </tr>
                 ))}
             </tbody>
@@ -553,7 +604,7 @@ export default function SalidasPT() {
         }}
       >
         <SalidaPTForm
-          productos={productos}
+          productos={productosOrdenados}
           lotesDisponibles={lotesDeProducto}
           onChangeProducto={onChangeProductoForm}
           submitting={submitting}
@@ -561,9 +612,9 @@ export default function SalidasPT() {
         />
         {(loadingProductos || loadingLotesForm) && (
           <div className="muted" style={{ marginTop: 8 }}>
-            {loadingProductos ? "Cargando productos…" : ""}
-            {loadingProductos && loadingLotesForm ? " · " : ""}
-            {loadingLotesForm ? "Cargando lotes…" : ""}
+            {loadingProductos ? 'Cargando productos…' : ''}
+            {loadingProductos && loadingLotesForm ? ' · ' : ''}
+            {loadingLotesForm ? 'Cargando lotes…' : ''}
           </div>
         )}
       </Modal>
@@ -572,7 +623,7 @@ export default function SalidasPT() {
       <Toast
         type={toast.type}
         message={toast.message}
-        onClose={() => setToast({ ...toast, message: "" })}
+        onClose={() => setToast({ ...toast, message: '' })}
       />
     </div>
   );

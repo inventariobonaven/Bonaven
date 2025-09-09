@@ -1,23 +1,31 @@
 // src/controllers/recetaProductoMap.controller.js
 const prisma = require('../database/prismaClient');
 
-
 const VBASE = new Set(['PRODUCCION', 'EMPAQUE', 'HORNEO']);
 
-
+// ints >= 0 (acepta string/number)
 function toPosInt(x) {
   const n = Number(x);
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
+// normaliza base; si viene vacía/undefined, usa PRODUCCION
+function normalizeBase(val) {
+  const s = String(val ?? '')
+    .trim()
+    .toUpperCase();
+  if (!s) return 'PRODUCCION';
+  if (VBASE.has(s)) return s;
+  throw new Error('vencimiento_base inválido (PRODUCCION|EMPAQUE|HORNEO)');
+}
 
+/* ======================= LISTAR ======================= */
 // GET /api/recetas/:id/productos-map
 async function listarPorReceta(req, res) {
   try {
     const receta_id = Number(req.params.id);
     const rec = await prisma.recetas.findUnique({ where: { id: receta_id } });
     if (!rec) return res.status(404).json({ message: 'Receta no encontrada' });
-
 
     const rows = await prisma.receta_producto_map.findMany({
       where: { receta_id },
@@ -35,33 +43,32 @@ async function listarPorReceta(req, res) {
   }
 }
 
-
+/* ======================= CREAR ======================= */
 // POST /api/recetas/:id/productos-map
-// body: { producto_id, unidades_por_batch, vida_util_dias, vencimiento_base }
+// body: { producto_id, unidades_por_batch, vida_util_dias, vencimiento_base? }
 async function crear(req, res) {
   try {
     const receta_id = Number(req.params.id);
     const { producto_id, unidades_por_batch, vida_util_dias, vencimiento_base } = req.body;
 
-
     if (!producto_id) return res.status(400).json({ message: 'producto_id es obligatorio' });
+
     const und = toPosInt(unidades_por_batch);
     if (!(und && und > 0)) {
       return res.status(400).json({ message: 'unidades_por_batch debe ser entero > 0' });
     }
-
 
     const vida = toPosInt(vida_util_dias);
     if (vida === null) {
       return res.status(400).json({ message: 'vida_util_dias debe ser entero ≥ 0' });
     }
 
-
-    const base = String(vencimiento_base || '').toUpperCase();
-    if (!VBASE.has(base)) {
-      return res.status(400).json({ message: 'vencimiento_base inválido (PRODUCCION|EMPAQUE|HORNEO)' });
+    let base;
+    try {
+      base = normalizeBase(vencimiento_base); // default: PRODUCCION
+    } catch (err) {
+      return res.status(400).json({ message: err.message });
     }
-
 
     const [rec, prod] = await Promise.all([
       prisma.recetas.findUnique({ where: { id: receta_id } }),
@@ -69,7 +76,6 @@ async function crear(req, res) {
     ]);
     if (!rec) return res.status(404).json({ message: 'Receta no encontrada' });
     if (!prod) return res.status(404).json({ message: 'Producto no encontrado' });
-
 
     const created = await prisma.receta_producto_map.create({
       data: {
@@ -84,7 +90,6 @@ async function crear(req, res) {
       },
     });
 
-
     res.status(201).json(created);
   } catch (e) {
     console.error('[map.crear]', e);
@@ -95,7 +100,7 @@ async function crear(req, res) {
   }
 }
 
-
+/* ======================= ACTUALIZAR ======================= */
 // PUT /api/recetas/productos-map/:mapId
 // body: { unidades_por_batch?, vida_util_dias?, vencimiento_base? }
 async function actualizar(req, res) {
@@ -103,12 +108,11 @@ async function actualizar(req, res) {
     const mapId = Number(req.params.mapId);
     const body = req.body;
 
-
     const exists = await prisma.receta_producto_map.findUnique({ where: { id: mapId } });
     if (!exists) return res.status(404).json({ message: 'Mapeo no encontrado' });
 
-
     const data = {};
+
     if (body.unidades_por_batch !== undefined) {
       const und = toPosInt(body.unidades_por_batch);
       if (!(und && und > 0)) {
@@ -116,6 +120,7 @@ async function actualizar(req, res) {
       }
       data.unidades_por_batch = und;
     }
+
     if (body.vida_util_dias !== undefined) {
       const vida = toPosInt(body.vida_util_dias);
       if (vida === null) {
@@ -123,21 +128,23 @@ async function actualizar(req, res) {
       }
       data.vida_util_dias = vida;
     }
-    if (body.vencimiento_base !== undefined) {
-      const base = String(body.vencimiento_base || '').toUpperCase();
-      if (!VBASE.has(base)) {
-        return res.status(400).json({ message: 'vencimiento_base inválido (PRODUCCION|EMPAQUE|HORNEO)' });
-      }
-      data.vencimiento_base = base;
-    }
 
+    if (body.vencimiento_base !== undefined) {
+      // Si viene vacío, normaliza a PRODUCCION; si viene valor, valida
+      try {
+        data.vencimiento_base = normalizeBase(body.vencimiento_base);
+      } catch (err) {
+        return res.status(400).json({ message: err.message });
+      }
+    }
 
     const updated = await prisma.receta_producto_map.update({
       where: { id: mapId },
       data,
-      include: { producto: { select: { id: true, nombre: true, requiere_congelacion_previa: true } } },
+      include: {
+        producto: { select: { id: true, nombre: true, requiere_congelacion_previa: true } },
+      },
     });
-
 
     res.json(updated);
   } catch (e) {
@@ -146,14 +153,13 @@ async function actualizar(req, res) {
   }
 }
 
-
+/* ======================= ELIMINAR ======================= */
 // DELETE /api/recetas/productos-map/:mapId
 async function eliminar(req, res) {
   try {
     const mapId = Number(req.params.mapId);
     const exists = await prisma.receta_producto_map.findUnique({ where: { id: mapId } });
     if (!exists) return res.status(404).json({ message: 'Mapeo no encontrado' });
-
 
     await prisma.receta_producto_map.delete({ where: { id: mapId } });
     res.json({ message: 'Mapeo eliminado' });
@@ -163,15 +169,9 @@ async function eliminar(req, res) {
   }
 }
 
-
 module.exports = {
   listarPorReceta,
   crear,
   actualizar,
   eliminar,
 };
-
-
-
-
-
