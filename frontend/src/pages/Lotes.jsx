@@ -1,24 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
-import api from "../api/client";
-
+import { useEffect, useMemo, useState } from 'react';
+import api from '../api/client';
 
 /* ========== Helpers ========== */
 const toInputDate = (d) => {
-  if (!d) return "";
+  if (!d) return '';
   const date = new Date(d);
-  if (Number.isNaN(date.getTime())) return "";
+  if (Number.isNaN(date.getTime())) return '';
   return (
-    String(date.getFullYear()).padStart(4, "0") +
-    "-" +
-    String(date.getMonth() + 1).padStart(2, "0") +
-    "-" +
-    String(date.getDate()).padStart(2, "0")
+    String(date.getFullYear()).padStart(4, '0') +
+    '-' +
+    String(date.getMonth() + 1).padStart(2, '0') +
+    '-' +
+    String(date.getDate()).padStart(2, '0')
   );
 };
 
-
 const todayISO = () => toInputDate(new Date());
-
 
 const isExpired = (fecha_vencimiento) => {
   if (!fecha_vencimiento) return false;
@@ -33,47 +30,48 @@ const isExpired = (fecha_vencimiento) => {
   }
 };
 
-
 // visual chip por estado enum
 function EstadoChip({ estado }) {
   const map = {
-    DISPONIBLE: { bg: "#f6ffed", border: "#b7eb8f", color: "#237804", label: "Disponible" },
-    RESERVADO:  { bg: "#e6f7ff", border: "#91d5ff", color: "#09539e", label: "Reservado" },
-    AGOTADO:    { bg: "#fafafa", border: "#d9d9d9", color: "#595959", label: "Agotado" },
-    VENCIDO:    { bg: "#fff1f0", border: "#ffa39e", color: "#a8071a", label: "Vencido (flag)" },
-    INACTIVO:   { bg: "#fffbe6", border: "#ffe58f", color: "#ad6800", label: "Inactivo" },
+    DISPONIBLE: { bg: '#f6ffed', border: '#b7eb8f', color: '#237804', label: 'Disponible' },
+    RESERVADO: { bg: '#e6f7ff', border: '#91d5ff', color: '#09539e', label: 'Reservado' },
+    AGOTADO: { bg: '#fafafa', border: '#d9d9d9', color: '#595959', label: 'Agotado' },
+    VENCIDO: { bg: '#fff1f0', border: '#ffa39e', color: '#a8071a', label: 'Vencido (flag)' },
+    INACTIVO: { bg: '#fffbe6', border: '#ffe58f', color: '#ad6800', label: 'Inactivo' },
   };
   const sty = map[estado] || map.DISPONIBLE;
   return (
-    <span className="badge" style={{ background: sty.bg, border: `1px solid ${sty.border}`, color: sty.color }}>
+    <span
+      className="badge"
+      style={{ background: sty.bg, border: `1px solid ${sty.border}`, color: sty.color }}
+    >
       {sty.label}
     </span>
   );
 }
 
-
 /* ========== UI comunes ========== */
-function Toast({ type = "success", message, onClose }) {
+function Toast({ type = 'success', message, onClose }) {
   if (!message) return null;
   return (
     <div
       className="card"
       style={{
-        position: "fixed",
+        position: 'fixed',
         right: 16,
         bottom: 16,
         zIndex: 1000,
-        borderColor: type === "error" ? "#ffccc7" : "var(--border)",
-        background: type === "error" ? "#fff2f0" : "#f6ffed",
+        borderColor: type === 'error' ? '#ffccc7' : 'var(--border)',
+        background: type === 'error' ? '#fff2f0' : '#f6ffed',
       }}
       role="alert"
     >
-      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        <strong style={{ color: type === "error" ? "#a8071a" : "#237804" }}>
-          {type === "error" ? "Error" : "Listo"}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <strong style={{ color: type === 'error' ? '#a8071a' : '#237804' }}>
+          {type === 'error' ? 'Error' : 'Listo'}
         </strong>
         <span>{message}</span>
-        <button className="btn-outline" onClick={onClose} style={{ width: "auto" }}>
+        <button className="btn-outline" onClick={onClose} style={{ width: 'auto' }}>
           Cerrar
         </button>
       </div>
@@ -81,26 +79,25 @@ function Toast({ type = "success", message, onClose }) {
   );
 }
 
-
 function Modal({ open, title, children, onClose }) {
   if (!open) return null;
   return (
     <div
       style={{
-        position: "fixed",
+        position: 'fixed',
         inset: 0,
-        background: "rgba(0,0,0,0.2)",
-        display: "grid",
-        placeItems: "center",
+        background: 'rgba(0,0,0,0.2)',
+        display: 'grid',
+        placeItems: 'center',
         zIndex: 999,
         padding: 12,
       }}
       onClick={onClose}
     >
       <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0 }}>{title}</h3>
-          <button className="btn-outline" onClick={onClose} style={{ width: "auto" }}>
+          <button className="btn-outline" onClick={onClose} style={{ width: 'auto' }}>
             ✕
           </button>
         </div>
@@ -110,17 +107,16 @@ function Modal({ open, title, children, onClose }) {
   );
 }
 
-
-function Confirm({ open, title = "Confirmar", message, onCancel, onConfirm }) {
+function Confirm({ open, title = 'Confirmar', message, onCancel, onConfirm }) {
   if (!open) return null;
   return (
     <Modal open={open} title={title} onClose={onCancel}>
-      <p style={{ margin: "8px 0 16px" }}>{message}</p>
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        <button className="btn-outline" onClick={onCancel} style={{ width: "auto" }}>
+      <p style={{ margin: '8px 0 16px' }}>{message}</p>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button className="btn-outline" onClick={onCancel} style={{ width: 'auto' }}>
           Cancelar
         </button>
-        <button className="btn-primary" onClick={onConfirm} style={{ width: "auto" }}>
+        <button className="btn-primary" onClick={onConfirm} style={{ width: 'auto' }}>
           Confirmar
         </button>
       </div>
@@ -128,52 +124,67 @@ function Confirm({ open, title = "Confirmar", message, onCancel, onConfirm }) {
   );
 }
 
-
 /* ========== Form Crear/Editar ========== */
 const emptyForm = {
-  materia_prima_id: "",
-  proveedor_id: "",
-  codigo: "",                 // <-- NUEVO
-  cantidad: "",
+  materia_prima_id: '',
+  proveedor_id: '',
+  codigo: '', // <-- NUEVO
+  cantidad: '',
   fecha_ingreso: toInputDate(new Date()),
-  fecha_vencimiento: "",
-  estado: "DISPONIBLE", // enum; antes era boolean
+  fecha_vencimiento: '',
+  estado: 'DISPONIBLE', // enum; antes era boolean
 };
-
 
 function LoteForm({ materias, proveedores, initial = emptyForm, onSubmit, submitting }) {
   const [form, setForm] = useState(initial);
   useEffect(() => setForm(initial), [initial]);
 
+  // Orden alfabético (ES, sin acentos, con números naturales)
+  const collatorEs = useMemo(
+    () => new Intl.Collator('es', { sensitivity: 'base', numeric: true }),
+    [],
+  );
+  const materiasOrdenadas = useMemo(
+    () =>
+      [...(materias || [])].sort((a, b) =>
+        collatorEs.compare(String(a?.nombre || '').trim(), String(b?.nombre || '').trim()),
+      ),
+    [materias, collatorEs],
+  );
+  const proveedoresOrdenados = useMemo(
+    () =>
+      [...(proveedores || [])].sort((a, b) =>
+        collatorEs.compare(String(a?.nombre || '').trim(), String(b?.nombre || '').trim()),
+      ),
+    [proveedores, collatorEs],
+  );
 
   const materia = materias.find((m) => String(m.id) === String(form.materia_prima_id));
-  const unidad = materia?.unidad_medida || "ud";
-
+  const unidad = materia?.unidad_medida || 'ud';
 
   const canSubmit = useMemo(() => {
-    const hasMateria = String(form.materia_prima_id || "").trim() !== "";
-    const hasCodigo  = String(form.codigo || "").trim() !== "";        // requerido
-    const hasCantidad = String(form.cantidad || "").trim() !== "" && Number(form.cantidad) >= 0;
+    const hasMateria = String(form.materia_prima_id || '').trim() !== '';
+    const hasCodigo = String(form.codigo || '').trim() !== ''; // requerido
+    const hasCantidad = String(form.cantidad || '').trim() !== '' && Number(form.cantidad) >= 0;
     const fechaOk =
       !!form.fecha_ingreso &&
       (!form.fecha_vencimiento || new Date(form.fecha_vencimiento) >= new Date(form.fecha_ingreso));
-    const estadoOk = ["DISPONIBLE", "RESERVADO", "INACTIVO", "AGOTADO", "VENCIDO"].includes(String(form.estado));
+    const estadoOk = ['DISPONIBLE', 'RESERVADO', 'INACTIVO', 'AGOTADO', 'VENCIDO'].includes(
+      String(form.estado),
+    );
     return hasMateria && hasCodigo && hasCantidad && fechaOk && estadoOk;
   }, [form]);
 
-
   function handleChange(e) {
     const { name, value, type, checked } = e.target;
-    setForm((f) => ({ ...f, [name]: type === "checkbox" ? checked : value }));
+    setForm((f) => ({ ...f, [name]: type === 'checkbox' ? checked : value }));
   }
-
 
   function submit(e) {
     e.preventDefault();
     if (!canSubmit) return;
     onSubmit(form);
   }
-
 
   return (
     <form onSubmit={submit}>
@@ -187,27 +198,25 @@ function LoteForm({ materias, proveedores, initial = emptyForm, onSubmit, submit
             required
           >
             <option value="">Seleccione materia prima</option>
-            {materias.map((m) => (
+            {materiasOrdenadas.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.nombre} {m.unidad_medida ? `(${m.unidad_medida})` : ""}
+                {m.nombre} {m.unidad_medida ? `(${m.unidad_medida})` : ''}
               </option>
             ))}
           </select>
         </div>
 
-
         <div>
           <label>Proveedor (opcional)</label>
           <select name="proveedor_id" value={form.proveedor_id} onChange={handleChange}>
             <option value="">Sin proveedor</option>
-            {proveedores.map((p) => (
+            {proveedoresOrdenados.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.nombre}
               </option>
             ))}
           </select>
         </div>
-
 
         <div>
           <label>Código de lote</label>
@@ -224,11 +233,8 @@ function LoteForm({ materias, proveedores, initial = emptyForm, onSubmit, submit
           </div>
         </div>
 
-
         <div>
-          <label>
-            Cantidad {unidad && <span className="muted">({unidad})</span>}
-          </label>
+          <label>Cantidad {unidad && <span className="muted">({unidad})</span>}</label>
           <input
             name="cantidad"
             type="number"
@@ -241,29 +247,26 @@ function LoteForm({ materias, proveedores, initial = emptyForm, onSubmit, submit
           />
         </div>
 
-
         <div>
           <label>Fecha de ingreso</label>
           <input
             type="date"
             name="fecha_ingreso"
-            value={form.fecha_ingreso || ""}
+            value={form.fecha_ingreso || ''}
             onChange={handleChange}
             required
           />
         </div>
-
 
         <div>
           <label>Fecha de vencimiento (opcional)</label>
           <input
             type="date"
             name="fecha_vencimiento"
-            value={form.fecha_vencimiento || ""}
+            value={form.fecha_vencimiento || ''}
             onChange={handleChange}
           />
         </div>
-
 
         <div>
           <label>Estado inicial</label>
@@ -278,16 +281,14 @@ function LoteForm({ materias, proveedores, initial = emptyForm, onSubmit, submit
         </div>
       </div>
 
-
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
         <button className="btn-primary" disabled={!canSubmit || submitting}>
-          {submitting ? "Guardando..." : "Guardar"}
+          {submitting ? 'Guardando...' : 'Guardar'}
         </button>
       </div>
     </form>
   );
 }
-
 
 /* ========== Página ========== */
 export default function Lotes() {
@@ -295,79 +296,70 @@ export default function Lotes() {
   const [materias, setMaterias] = useState([]);
   const [proveedores, setProveedores] = useState([]);
 
-
   const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState({ type: "success", message: "" });
-
+  const [toast, setToast] = useState({ type: 'success', message: '' });
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-
   // Confirmaciones
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [toDelete, setToDelete] = useState(null);
 
-
   const [confirmEstadoOpen, setConfirmEstadoOpen] = useState(false);
   const [estadoTarget, setEstadoTarget] = useState(null); // { id, next, label }
 
-
   // Filtros
-  const [filters, setFilters] = useState({ q: "", estado: "all" }); // all|active|inactive|expired
-
+  const [filters, setFilters] = useState({ q: '', estado: 'all' }); // all|active|inactive|expired
 
   /* ---- API ---- */
   async function load() {
     setLoading(true);
     try {
       const [L, M, P] = await Promise.all([
-        api.get("/lotes-materia-prima"),
-        api.get("/materias-primas"),
-        api.get("/proveedores"),
+        api.get('/lotes-materia-prima'),
+        api.get('/materias-primas'),
+        api.get('/proveedores'),
       ]);
       setItems(Array.isArray(L.data) ? L.data : []);
       setMaterias(Array.isArray(M.data) ? M.data : []);
       setProveedores(Array.isArray(P.data) ? P.data : []);
     } catch (err) {
-      console.error("[Lotes] cargar error", err);
-      setToast({ type: "error", message: err?.response?.data?.message || "Error cargando datos" });
+      console.error('[Lotes] cargar error', err);
+      setToast({ type: 'error', message: err?.response?.data?.message || 'Error cargando datos' });
     } finally {
       setLoading(false);
     }
   }
 
-
   useEffect(() => {
     load();
   }, []);
 
-
   async function createItem(payload) {
     setSubmitting(true);
     try {
-      await api.post("/lotes-materia-prima", {
+      await api.post('/lotes-materia-prima', {
         materia_prima_id: Number(payload.materia_prima_id),
         proveedor_id: payload.proveedor_id ? Number(payload.proveedor_id) : null,
-        codigo: String(payload.codigo).trim(),           // <-- NUEVO
+        codigo: String(payload.codigo).trim(), // <-- NUEVO
         cantidad: String(payload.cantidad),
         fecha_ingreso: payload.fecha_ingreso,
         fecha_vencimiento: payload.fecha_vencimiento || null,
         estado: payload.estado, // enum
       });
-      setToast({ type: "success", message: "Lote creado" });
+      setToast({ type: 'success', message: 'Lote creado' });
       setModalOpen(false);
       setEditing(null);
       await load();
     } catch (err) {
-      console.error("[Lotes] crear error", err);
-      setToast({ type: "error", message: err?.response?.data?.message || "Error creando lote" });
+      console.error('[Lotes] crear error', err);
+      setToast({ type: 'error', message: err?.response?.data?.message || 'Error creando lote' });
     } finally {
       setSubmitting(false);
     }
   }
-
 
   async function updateItem(id, payload) {
     setSubmitting(true);
@@ -375,24 +367,23 @@ export default function Lotes() {
       await api.put(`/lotes-materia-prima/${id}`, {
         materia_prima_id: Number(payload.materia_prima_id),
         proveedor_id: payload.proveedor_id ? Number(payload.proveedor_id) : null,
-        codigo: String(payload.codigo).trim(),           // <-- NUEVO
+        codigo: String(payload.codigo).trim(), // <-- NUEVO
         cantidad: String(payload.cantidad),
         fecha_ingreso: payload.fecha_ingreso,
         fecha_vencimiento: payload.fecha_vencimiento || null,
         estado: payload.estado, // enum
       });
-      setToast({ type: "success", message: "Cambios guardados" });
+      setToast({ type: 'success', message: 'Cambios guardados' });
       setModalOpen(false);
       setEditing(null);
       await load();
     } catch (err) {
-      console.error("[Lotes] update error", err);
-      setToast({ type: "error", message: err?.response?.data?.message || "Error actualizando" });
+      console.error('[Lotes] update error', err);
+      setToast({ type: 'error', message: err?.response?.data?.message || 'Error actualizando' });
     } finally {
       setSubmitting(false);
     }
   }
-
 
   async function setEstado(id, nextEstado) {
     try {
@@ -401,18 +392,20 @@ export default function Lotes() {
       await api.put(`/lotes-materia-prima/${id}`, {
         materia_prima_id: current.materia_prima_id,
         proveedor_id: current.proveedor_id,
-        codigo: String(current.codigo).trim(),           // <-- conservar código
+        codigo: String(current.codigo).trim(), // <-- conservar código
         cantidad: String(current.cantidad),
         fecha_ingreso: toInputDate(current.fecha_ingreso),
-        fecha_vencimiento: current.fecha_vencimiento ? toInputDate(current.fecha_vencimiento) : null,
+        fecha_vencimiento: current.fecha_vencimiento
+          ? toInputDate(current.fecha_vencimiento)
+          : null,
         estado: nextEstado,
       });
-      setToast({ type: "success", message: `Estado actualizado a ${nextEstado}` });
+      setToast({ type: 'success', message: `Estado actualizado a ${nextEstado}` });
       await load();
     } catch (err) {
       setToast({
-        type: "error",
-        message: err?.response?.data?.message || "No se pudo actualizar el estado",
+        type: 'error',
+        message: err?.response?.data?.message || 'No se pudo actualizar el estado',
       });
     } finally {
       setConfirmEstadoOpen(false);
@@ -420,16 +413,15 @@ export default function Lotes() {
     }
   }
 
-
   async function removeItem(id) {
     try {
       await api.delete(`/lotes-materia-prima/${id}?hard=true`);
-      setToast({ type: "success", message: "Lote eliminado" });
+      setToast({ type: 'success', message: 'Lote eliminado' });
       await load();
     } catch (err) {
       setToast({
-        type: "error",
-        message: err?.response?.data?.message || "No se pudo eliminar",
+        type: 'error',
+        message: err?.response?.data?.message || 'No se pudo eliminar',
       });
     } finally {
       setConfirmDeleteOpen(false);
@@ -437,37 +429,35 @@ export default function Lotes() {
     }
   }
 
-
   /* ---- Filtro en memoria ---- */
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
     const estado = filters.estado; // all|active|inactive|expired
     return items.filter((l) => {
-      const materia = l.materias_primas?.nombre?.toLowerCase?.() || "";
-      const proveedor = l.proveedores?.nombre?.toLowerCase?.() || "";
-      const codigo = String(l.codigo || "").toLowerCase();     // <-- incluir código
+      const materia = l.materias_primas?.nombre?.toLowerCase?.() || '';
+      const proveedor = l.proveedores?.nombre?.toLowerCase?.() || '';
+      const codigo = String(l.codigo || '').toLowerCase(); // <-- incluir código
       const matchText =
-        !q || materia.includes(q) || proveedor.includes(q) || String(l.id).includes(q) || codigo.includes(q);
-
+        !q ||
+        materia.includes(q) ||
+        proveedor.includes(q) ||
+        String(l.id).includes(q) ||
+        codigo.includes(q);
 
       const expired = isExpired(l.fecha_vencimiento);
 
-
-      const isActiveEnum = l.estado === "DISPONIBLE" || l.estado === "RESERVADO";
-      const isInactiveEnum = l.estado === "INACTIVO";
-
+      const isActiveEnum = l.estado === 'DISPONIBLE' || l.estado === 'RESERVADO';
+      const isInactiveEnum = l.estado === 'INACTIVO';
 
       const matchEstado =
-        estado === "all" ||
-        (estado === "active" && isActiveEnum && !expired) ||
-        (estado === "inactive" && isInactiveEnum) ||
-        (estado === "expired" && expired);
-
+        estado === 'all' ||
+        (estado === 'active' && isActiveEnum && !expired) ||
+        (estado === 'inactive' && isInactiveEnum) ||
+        (estado === 'expired' && expired);
 
       return matchText && matchEstado;
     });
   }, [items, filters]);
-
 
   /* ---- Orden: más nuevos primero ---- */
   const sorted = useMemo(() => {
@@ -476,16 +466,15 @@ export default function Lotes() {
       const B = new Date(b.fecha_ingreso).getTime() || 0;
       if (B !== A) return B - A;
       // secundario por código asc, luego id desc
-      const ca = String(a.codigo || "").localeCompare(String(b.codigo || ""));
+      const ca = String(a.codigo || '').localeCompare(String(b.codigo || ''));
       if (ca !== 0) return ca;
       return (Number(b.id) || 0) - (Number(a.id) || 0);
     });
   }, [filtered]);
 
-
   /* ---- UI ---- */
   const header = (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div>
         <h2 style={{ margin: 0 }}>Lotes de materia prima</h2>
         <div className="muted">Gestiona ingresos por lote y su vigencia</div>
@@ -496,19 +485,17 @@ export default function Lotes() {
           setEditing(null);
           setModalOpen(true);
         }}
-        style={{ width: "auto" }}
+        style={{ width: 'auto' }}
       >
         + Nuevo lote
       </button>
     </div>
   );
 
-
   return (
     <div className="page">
       <div className="card">
         {header}
-
 
         {/* Filtros */}
         <div className="filters" style={{ marginTop: 12 }}>
@@ -528,13 +515,12 @@ export default function Lotes() {
           </select>
         </div>
 
-
         {/* Tabla */}
         <div style={{ marginTop: 12 }}>
           <table className="table">
             <thead>
               <tr>
-                <th style={{ width: 140 }}>Código</th>            {/* NUEVO */}
+                <th style={{ width: 140 }}>Código</th> {/* NUEVO */}
                 <th style={{ width: 70 }}>ID</th>
                 <th>Materia</th>
                 <th>Proveedor</th>
@@ -546,7 +532,6 @@ export default function Lotes() {
               </tr>
             </thead>
 
-
             <tbody>
               {loading && (
                 <tr>
@@ -556,31 +541,28 @@ export default function Lotes() {
                 </tr>
               )}
 
-
               {!loading && sorted.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ padding: 14, textAlign: "center" }}>
+                  <td colSpan={9} style={{ padding: 14, textAlign: 'center' }}>
                     Sin resultados
                   </td>
                 </tr>
               )}
 
-
               {!loading &&
                 sorted.map((l) => {
-                  const unidad = l.materias_primas?.unidad_medida || "ud";
+                  const unidad = l.materias_primas?.unidad_medida || 'ud';
                   const expired = isExpired(l.fecha_vencimiento);
-                  const nextEstado = l.estado === "INACTIVO" ? "DISPONIBLE" : "INACTIVO";
+                  const nextEstado = l.estado === 'INACTIVO' ? 'DISPONIBLE' : 'INACTIVO';
                   const nextLabel =
-                    l.estado === "INACTIVO" ? "Activar (DISPONIBLE)" : "Marcar INACTIVO";
-
+                    l.estado === 'INACTIVO' ? 'Activar (DISPONIBLE)' : 'Marcar INACTIVO';
 
                   return (
                     <tr key={l.id}>
-                      <td>{l.codigo || "—"}</td>
+                      <td>{l.codigo || '—'}</td>
                       <td>#{l.id}</td>
                       <td>{l.materias_primas?.nombre}</td>
-                      <td>{l.proveedores?.nombre || "-"}</td>
+                      <td>{l.proveedores?.nombre || '-'}</td>
                       <td>
                         {l.cantidad} {unidad}
                       </td>
@@ -588,18 +570,25 @@ export default function Lotes() {
                       <td>
                         {l.fecha_vencimiento
                           ? new Date(l.fecha_vencimiento).toLocaleDateString()
-                          : "-"}
+                          : '-'}
                       </td>
                       <td>
-                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            gap: 6,
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                          }}
+                        >
                           <EstadoChip estado={l.estado} />
                           {expired && (
                             <span
                               className="badge"
                               style={{
-                                background: "#fff1f0",
-                                border: "1px solid #ffa39e",
-                                color: "#a8071a",
+                                background: '#fff1f0',
+                                border: '1px solid #ffa39e',
+                                color: '#a8071a',
                               }}
                             >
                               Vencido
@@ -608,41 +597,38 @@ export default function Lotes() {
                         </div>
                       </td>
                       <td>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                           <button
                             className="btn-outline"
                             onClick={() => {
                               setEditing({
                                 id: l.id,
                                 materia_prima_id: l.materia_prima_id,
-                                proveedor_id: l.proveedor_id || "",
-                                codigo: l.codigo || "",                     // <-- NUEVO
-                                cantidad: String(l.cantidad ?? ""),
+                                proveedor_id: l.proveedor_id || '',
+                                codigo: l.codigo || '', // <-- NUEVO
+                                cantidad: String(l.cantidad ?? ''),
                                 fecha_ingreso: toInputDate(l.fecha_ingreso),
                                 fecha_vencimiento: toInputDate(l.fecha_vencimiento),
                                 estado: l.estado, // enum
                               });
                               setModalOpen(true);
                             }}
-                            style={{ width: "auto" }}
+                            style={{ width: 'auto' }}
                           >
                             ✏️ Editar
                           </button>
 
-
                           <button
                             className="btn-outline"
                             onClick={() => {
-                              const etiqueta =
-                                `${l.materias_primas?.nombre || "lote"} (${l.codigo || `#${l.id}`})`;
+                              const etiqueta = `${l.materias_primas?.nombre || 'lote'} (${l.codigo || `#${l.id}`})`;
                               setEstadoTarget({ id: l.id, next: nextEstado, label: etiqueta });
                               setConfirmEstadoOpen(true);
                             }}
-                            style={{ width: "auto" }}
+                            style={{ width: 'auto' }}
                           >
                             {nextLabel}
                           </button>
-
 
                           <button
                             className="btn-danger-outline"
@@ -650,7 +636,7 @@ export default function Lotes() {
                               setToDelete(l);
                               setConfirmDeleteOpen(true);
                             }}
-                            style={{ width: "auto" }}
+                            style={{ width: 'auto' }}
                           >
                             🗑️ Eliminar
                           </button>
@@ -664,11 +650,10 @@ export default function Lotes() {
         </div>
       </div>
 
-
       {/* Modal Crear / Editar */}
       <Modal
         open={modalOpen}
-        title={editing ? "Editar lote" : "Nuevo lote"}
+        title={editing ? 'Editar lote' : 'Nuevo lote'}
         onClose={() => {
           if (!submitting) {
             setModalOpen(false);
@@ -681,12 +666,9 @@ export default function Lotes() {
           proveedores={proveedores}
           initial={editing || emptyForm}
           submitting={submitting}
-          onSubmit={(payload) =>
-            editing ? updateItem(editing.id, payload) : createItem(payload)
-          }
+          onSubmit={(payload) => (editing ? updateItem(editing.id, payload) : createItem(payload))}
         />
       </Modal>
-
 
       {/* Confirmación eliminar */}
       <Confirm
@@ -695,7 +677,7 @@ export default function Lotes() {
         message={
           toDelete
             ? `¿Seguro que deseas eliminar el lote ${toDelete.codigo ? `"${toDelete.codigo}"` : `#${toDelete.id}`} de "${toDelete.materias_primas?.nombre}"? Esta acción no se puede deshacer.`
-            : ""
+            : ''
         }
         onCancel={() => {
           setConfirmDeleteOpen(false);
@@ -704,7 +686,6 @@ export default function Lotes() {
         onConfirm={() => removeItem(toDelete.id)}
       />
 
-
       {/* Confirmación cambio de estado */}
       <Confirm
         open={confirmEstadoOpen}
@@ -712,7 +693,7 @@ export default function Lotes() {
         message={
           estadoTarget
             ? `¿Deseas cambiar "${estadoTarget.label}" al estado ${estadoTarget.next}?`
-            : ""
+            : ''
         }
         onCancel={() => {
           setConfirmEstadoOpen(false);
@@ -721,18 +702,12 @@ export default function Lotes() {
         onConfirm={() => setEstado(estadoTarget.id, estadoTarget.next)}
       />
 
-
       {/* Toast */}
       <Toast
         type={toast.type}
         message={toast.message}
-        onClose={() => setToast({ ...toast, message: "" })}
+        onClose={() => setToast({ ...toast, message: '' })}
       />
     </div>
   );
 }
-
-
-
-
-

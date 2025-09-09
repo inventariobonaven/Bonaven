@@ -1,28 +1,28 @@
-import { useEffect, useMemo, useState } from "react";
-import api from "../api/client";
+import { useEffect, useMemo, useState } from 'react';
+import api from '../api/client';
 
 /* ===== UI helpers ===== */
-function Toast({ type = "success", message, onClose }) {
+function Toast({ type = 'success', message, onClose }) {
   if (!message) return null;
   return (
     <div
       className="card"
       style={{
-        position: "fixed",
+        position: 'fixed',
         right: 16,
         bottom: 16,
         zIndex: 1000,
-        borderColor: type === "error" ? "#ffccc7" : "var(--border)",
-        background: type === "error" ? "#fff2f0" : "#f6ffed",
+        borderColor: type === 'error' ? '#ffccc7' : 'var(--border)',
+        background: type === 'error' ? '#fff2f0' : '#f6ffed',
       }}
       role="alert"
     >
-      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        <strong style={{ color: type === "error" ? "#a8071a" : "#237804" }}>
-          {type === "error" ? "Error" : "Listo"}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <strong style={{ color: type === 'error' ? '#a8071a' : '#237804' }}>
+          {type === 'error' ? 'Error' : 'Listo'}
         </strong>
         <span>{message}</span>
-        <button className="btn-outline" onClick={onClose} style={{ width: "auto" }}>
+        <button className="btn-outline" onClick={onClose} style={{ width: 'auto' }}>
           Cerrar
         </button>
       </div>
@@ -30,7 +30,11 @@ function Toast({ type = "success", message, onClose }) {
   );
 }
 
-const fmtDate = (x) => (x ? new Date(x).toLocaleDateString() : "—");
+const fmtDate = (x) => (x ? new Date(x).toLocaleDateString() : '—');
+
+/* ===== Orden alfabético ===== */
+const collator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
+const byNombre = (a, b) => collator.compare(String(a?.nombre || ''), String(b?.nombre || ''));
 
 /* ===== Página ===== */
 export default function MovimientosPT() {
@@ -42,25 +46,26 @@ export default function MovimientosPT() {
   const [productos, setProductos] = useState([]);
   const [loadingProds, setLoadingProds] = useState(true);
 
-  const [toast, setToast] = useState({ type: "success", message: "" });
+  const [toast, setToast] = useState({ type: 'success', message: '' });
 
   // filtros
   const [filters, setFilters] = useState({
-    q: "",
-    producto_id: "",
-    tipo: "all", // all | ENTRADA | SALIDA | AJUSTE
-    desde: "",
-    hasta: "",
+    q: '',
+    producto_id: '',
+    tipo: 'all', // all | ENTRADA | SALIDA | AJUSTE
+    desde: '',
+    hasta: '',
   });
 
   async function loadProductos() {
     setLoadingProds(true);
     try {
       const { data } = await api.get(`/productos?estado=true`);
-      setProductos(Array.isArray(data) ? data : []);
+      const arr = Array.isArray(data) ? data.slice().sort(byNombre) : [];
+      setProductos(arr);
     } catch {
       setProductos([]);
-      setToast({ type: "error", message: "No se pudieron cargar productos" });
+      setToast({ type: 'error', message: 'No se pudieron cargar productos' });
     } finally {
       setLoadingProds(false);
     }
@@ -70,11 +75,10 @@ export default function MovimientosPT() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (filters.producto_id) params.set("producto_id", String(filters.producto_id));
-      if (filters.tipo !== "all") params.set("tipo", filters.tipo);
-      // 'desde' y 'hasta' hoy no los procesa el backend de PT, los enviamos igual para futuro
-      if (filters.desde) params.set("desde", filters.desde);
-      if (filters.hasta) params.set("hasta", filters.hasta);
+      if (filters.producto_id) params.set('producto_id', String(filters.producto_id));
+      if (filters.tipo !== 'all') params.set('tipo', filters.tipo);
+      if (filters.desde) params.set('desde', filters.desde);
+      if (filters.hasta) params.set('hasta', filters.hasta);
 
       const { data } = await api.get(`/pt/movimientos?${params.toString()}`);
       const arr = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
@@ -82,7 +86,7 @@ export default function MovimientosPT() {
       setTotal(arr.length);
     } catch {
       setItems([]);
-      setToast({ type: "error", message: "No se pudieron cargar movimientos" });
+      setToast({ type: 'error', message: 'No se pudieron cargar movimientos' });
     } finally {
       setLoading(false);
     }
@@ -103,12 +107,15 @@ export default function MovimientosPT() {
     const q = filters.q.trim().toLowerCase();
     if (!q) return items;
     return items.filter((m) => {
-      const prodName =
-        productos.find((p) => Number(p.id) === Number(m.producto_id))?.nombre || "";
+      const prodName = productos.find((p) => Number(p.id) === Number(m.producto_id))?.nombre || '';
       return (
         prodName.toLowerCase().includes(q) ||
-        String(m.lote_codigo || "").toLowerCase().includes(q) ||
-        String(m.motivo || "").toLowerCase().includes(q)
+        String(m.lote_codigo || '')
+          .toLowerCase()
+          .includes(q) ||
+        String(m.motivo || '')
+          .toLowerCase()
+          .includes(q)
       );
     });
   }, [items, filters.q, productos]);
@@ -124,7 +131,7 @@ export default function MovimientosPT() {
   }, [filtered]);
 
   const header = (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div>
         <h2 style={{ margin: 0 }}>Movimientos de Productos Terminados</h2>
         <div className="muted">Entradas, salidas y ajustes</div>
@@ -134,8 +141,7 @@ export default function MovimientosPT() {
   );
 
   const prodName = (m) =>
-    productos.find((p) => Number(p.id) === Number(m.producto_id))?.nombre ||
-    `#${m.producto_id}`;
+    productos.find((p) => Number(p.id) === Number(m.producto_id))?.nombre || `#${m.producto_id}`;
 
   return (
     <div className="page">
@@ -147,9 +153,9 @@ export default function MovimientosPT() {
           className="filters"
           style={{
             marginTop: 12,
-            display: "grid",
+            display: 'grid',
             gap: 8,
-            gridTemplateColumns: "1fr 220px 160px 160px 160px",
+            gridTemplateColumns: '1fr 220px 160px 160px 160px',
           }}
         >
           <input
@@ -201,7 +207,7 @@ export default function MovimientosPT() {
                 <th>Producto</th>
                 <th>Lote</th>
                 <th>Tipo</th>
-                <th style={{ textAlign: "right" }}>Cantidad</th>
+                <th style={{ textAlign: 'right' }}>Cantidad</th>
                 <th>Motivo</th>
                 <th style={{ width: 120 }}>Ref.</th>
               </tr>
@@ -217,7 +223,7 @@ export default function MovimientosPT() {
 
               {!loading && sorted.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ padding: 14, textAlign: "center" }}>
+                  <td colSpan={8} style={{ padding: 14, textAlign: 'center' }}>
                     Sin resultados
                   </td>
                 </tr>
@@ -229,39 +235,42 @@ export default function MovimientosPT() {
                     <td>{m.id}</td>
                     <td>{fmtDate(m.fecha)}</td>
                     <td>{prodName(m)}</td>
-                    <td>{m.lote_codigo || (m.lote_id ? `#${m.lote_id}` : "—")}</td>
+                    <td>{m.lote_codigo || (m.lote_id ? `#${m.lote_id}` : '—')}</td>
                     <td>
                       <span
                         className="badge"
                         style={{
                           background:
-                            m.tipo === "ENTRADA"
-                              ? "#f6ffed"
-                              : m.tipo === "SALIDA"
-                              ? "#fff2f0"
-                              : "#f0f5ff",
-                          border: "1px solid",
+                            m.tipo === 'ENTRADA'
+                              ? '#f6ffed'
+                              : m.tipo === 'SALIDA'
+                                ? '#fff2f0'
+                                : '#f0f5ff',
+                          border: '1px solid',
                           borderColor:
-                            m.tipo === "ENTRADA"
-                              ? "#b7eb8f"
-                              : m.tipo === "SALIDA"
-                              ? "#ffccc7"
-                              : "#adc6ff",
+                            m.tipo === 'ENTRADA'
+                              ? '#b7eb8f'
+                              : m.tipo === 'SALIDA'
+                                ? '#ffccc7'
+                                : '#adc6ff',
                           color:
-                            m.tipo === "ENTRADA"
-                              ? "#237804"
-                              : m.tipo === "SALIDA"
-                              ? "#a8071a"
-                              : "#1d39c4",
+                            m.tipo === 'ENTRADA'
+                              ? '#237804'
+                              : m.tipo === 'SALIDA'
+                                ? '#a8071a'
+                                : '#1d39c4',
                         }}
                       >
                         {m.tipo}
                       </span>
                     </td>
-                    <td style={{ textAlign: "right" }}>{m.cantidad}</td>
-                    <td>{m.motivo || "—"}</td>
-                    <td className="muted" title={m.ref_id ? `${m.ref_tipo} #${m.ref_id}` : m.ref_tipo || ""}>
-                      {m.ref_tipo || "—"}
+                    <td style={{ textAlign: 'right' }}>{m.cantidad}</td>
+                    <td>{m.motivo || '—'}</td>
+                    <td
+                      className="muted"
+                      title={m.ref_id ? `${m.ref_tipo} #${m.ref_id}` : m.ref_tipo || ''}
+                    >
+                      {m.ref_tipo || '—'}
                     </td>
                   </tr>
                 ))}
@@ -274,10 +283,8 @@ export default function MovimientosPT() {
       <Toast
         type={toast.type}
         message={toast.message}
-        onClose={() => setToast({ ...toast, message: "" })}
+        onClose={() => setToast({ ...toast, message: '' })}
       />
     </div>
   );
 }
-
-

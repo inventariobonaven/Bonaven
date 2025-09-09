@@ -60,12 +60,12 @@ async function recalcStockPTReady(tx, productoId) {
 }
 
 /* Bolsas a descontar:
-  - Con unidades_por_empaque (>0): bolsas_por_unidad = bolsas por paquete (default 1).
-  - Sin unidades_por_empaque: modo legado -> bolsas_por_unidad = bolsas por unidad. */
+ - Con unidades_por_empaque (>0): bolsas_por_unidad = bolsas por paquete (default 1).
+ - Sin unidades_por_empaque: modo legado -> bolsas_por_unidad = bolsas por unidad. */
 function calcularBolsasNecesarias(cantidadUnidades, bolsas_por_unidad, unidades_por_empaque) {
   const qty = Math.max(0, Number(cantidadUnidades) || 0);
-  const packSize = Number(unidades_por_empaque ?? 0);   // unidades por paquete
-  const bppRaw   = Number(bolsas_por_unidad ?? 0);
+  const packSize = Number(unidades_por_empaque ?? 0); // unidades por paquete
+  const bppRaw = Number(bolsas_por_unidad ?? 0);
 
   if (packSize > 0) {
     // Bolsas por paquete (si no viene, asumimos 1)
@@ -80,7 +80,8 @@ function calcularBolsasNecesarias(cantidadUnidades, bolsas_por_unidad, unidades_
 }
 
 async function registrarProduccion(req, res) {
-  const { receta_id, cantidad_producida, fecha, hora_inicio, hora_fin, observacion, lote_codigo } = req.body;
+  const { receta_id, cantidad_producida, fecha, hora_inicio, hora_fin, observacion, lote_codigo } =
+    req.body;
 
   if (!receta_id || !cantidad_producida) {
     return res.status(400).json({ message: 'receta_id y cantidad_producida son obligatorios' });
@@ -90,9 +91,11 @@ async function registrarProduccion(req, res) {
     return res.status(400).json({ message: 'cantidad_producida debe ser > 0' });
   }
 
-  // Validación de horas: o vienen ambas, o ninguna
-  if ((hora_inicio && !hora_fin) || (!hora_inicio && hora_fin)) {
-    return res.status(400).json({ message: 'Debe enviar ambas horas: hora_inicio y hora_fin' });
+  // 🔴 Ahora SON OBLIGATORIAS
+  if (!hora_inicio || !hora_fin) {
+    return res
+      .status(400)
+      .json({ message: 'hora_inicio y hora_fin son obligatorias (HH:mm o ISO)' });
   }
 
   try {
@@ -102,51 +105,39 @@ async function registrarProduccion(req, res) {
         include: {
           ingredientes_receta: true,
           productos_terminados: true, // informativo
-          producto_maps: true,        // mapeos Receta ↔ Producto (rendimiento/vencimiento)
+          producto_maps: true, // mapeos Receta ↔️ Producto (rendimiento/vencimiento)
         },
       });
       if (!receta || !receta.estado) throw new Error('Receta no encontrada o inactiva');
 
       if (!Array.isArray(receta.producto_maps) || receta.producto_maps.length === 0) {
         return res.status(400).json({
-          message: 'La receta no tiene productos mapeados. Configure Receta ↔ Producto antes de producir.',
+          message:
+            'La receta no tiene productos mapeados. Configure Receta ↔️ Producto antes de producir.',
         });
       }
 
-      // === obtener "tipo" de cada MP para detectar CULTIVO (masa madre) ===
-      const mpIds = receta.ingredientes_receta
-        .map(i => Number(i.materia_prima_id))
-        .filter(Boolean);
-      const mpMeta = mpIds.length
-        ? await tx.materias_primas.findMany({
-            where: { id: { in: mpIds } },
-            select: { id: true, tipo: true }
-          })
-        : [];
-      const mpTipo = new Map(mpMeta.map(m => [m.id, String(m.tipo || '').toUpperCase()]));
-
-      // 0) Preparar horas y duración (si vienen)
-      let dtInicio = null;
-      let dtFin = null;
-      let duracionMin = null;
+      // 0) Preparar horas y duración (OBLIGATORIAS)
       const fechaProd = fecha ? new Date(fecha) : new Date();
 
-      if (hora_inicio && hora_fin) {
-        dtInicio = parseDateOrTime(fecha, hora_inicio);
-        dtFin = parseDateOrTime(fecha, hora_fin);
+      let dtInicio = parseDateOrTime(fecha, hora_inicio);
+      let dtFin = parseDateOrTime(fecha, hora_fin);
 
-        if (!dtInicio || !dtFin || isNaN(dtInicio) || isNaN(dtFin)) {
-          throw new Error('Formato de hora inválido. Envíe HH:mm o datetime ISO.');
-        }
-        // Si vinieron como HH:mm (misma fecha) y el fin es menor, asumir cruce de medianoche
-        if (fecha && String(hora_inicio).length <= 5 && String(hora_fin).length <= 5) {
-          if (dtFin.getTime() < dtInicio.getTime()) dtFin.setDate(dtFin.getDate() + 1);
-        }
-
-        const diffMs = dtFin.getTime() - dtInicio.getTime();
-        if (diffMs <= 0) throw new Error('La hora fin debe ser posterior a la hora inicio');
-        duracionMin = Math.round(diffMs / 60000);
+      if (!dtInicio || !dtFin || isNaN(dtInicio) || isNaN(dtFin)) {
+        throw new Error('Formato de hora inválido. Envíe HH:mm o datetime ISO.');
       }
+
+      // Si vinieron como HH:mm (misma fecha) y fin <= inicio, asumimos cruce de medianoche
+      const ambosHHMM = String(hora_inicio).length <= 5 && String(hora_fin).length <= 5;
+      if (ambosHHMM && dtFin.getTime() <= dtInicio.getTime()) {
+        dtFin.setDate(dtFin.getDate() + 1);
+      }
+
+      const diffMs = dtFin.getTime() - dtInicio.getTime();
+      if (diffMs <= 0) {
+        throw new Error('La hora fin debe ser posterior a la hora inicio');
+      }
+      const duracionMin = Math.round(diffMs / 60000);
 
       // 1) Crear cabecera
       const produccion = await tx.producciones.create({
@@ -154,12 +145,24 @@ async function registrarProduccion(req, res) {
           receta_id: receta.id,
           cantidad_producida: qty,
           fecha: fecha ? new Date(fecha) : undefined,
-          hora_inicio: dtInicio || undefined,
-          hora_fin: dtFin || undefined,
-          duracion_minutos: duracionMin ?? undefined,
+          hora_inicio: dtInicio,
+          hora_fin: dtFin,
+          duracion_minutos: duracionMin,
           observacion: (observacion && String(observacion).trim()) || null,
         },
       });
+
+      // === obtener "tipo" de cada MP para detectar CULTIVO (masa madre) ===
+      const mpIds = receta.ingredientes_receta
+        .map((i) => Number(i.materia_prima_id))
+        .filter(Boolean);
+      const mpMeta = mpIds.length
+        ? await tx.materias_primas.findMany({
+            where: { id: { in: mpIds } },
+            select: { id: true, tipo: true },
+          })
+        : [];
+      const mpTipo = new Map(mpMeta.map((m) => [m.id, String(m.tipo || '').toUpperCase()]));
 
       // 2) Descontar por FIFO los ingredientes (OMITIENDO CULTIVO)
       const mpUsadas = new Set();
@@ -170,8 +173,7 @@ async function registrarProduccion(req, res) {
 
         const tipo = mpTipo.get(mpId); // <- "CULTIVO" para masa madre
         if (tipo === 'CULTIVO') {
-          // No descontamos stock para CULTIVO (masa madre)
-          continue;
+          continue; // No descontamos stock para CULTIVO
         }
 
         await descontarFIFO(tx, mpId, requerido, {
@@ -277,7 +279,7 @@ async function registrarProduccion(req, res) {
             const bolsasNecesarias = calcularBolsasNecesarias(
               unidades,
               producto.bolsas_por_unidad,
-              producto.unidades_por_empaque
+              producto.unidades_por_empaque,
             );
             if (bolsasNecesarias > 0) {
               await descontarFIFO(tx, empaqueId, bolsasNecesarias, {
@@ -328,8 +330,7 @@ async function registrarProduccion(req, res) {
   } catch (e) {
     console.error('[registrarProduccion]', e);
     const msg = e?.message || 'Error registrando producción';
-    const status = e.code === 'STOCK_INSUFICIENTE' ? 400 : 400;
-    res.status(status).json({ message: msg });
+    res.status(400).json({ message: msg });
   }
 }
 
@@ -370,17 +371,15 @@ async function calcularProduccion(req, res) {
     }
 
     // meta de MPs para saber cuáles son CULTIVO
-    const mpIds = receta.ingredientes_receta
-      .map(i => Number(i.materia_prima_id))
-      .filter(Boolean);
+    const mpIds = receta.ingredientes_receta.map((i) => Number(i.materia_prima_id)).filter(Boolean);
     const mpMeta = mpIds.length
       ? await prisma.materias_primas.findMany({
           where: { id: { in: mpIds } },
           select: { id: true, tipo: true, nombre: true, unidad_medida: true },
         })
       : [];
-    const mpTipo   = new Map(mpMeta.map(m => [m.id, String(m.tipo || '').toUpperCase()]));
-    const mpUnidad = new Map(mpMeta.map(m => [m.id, m.unidad_medida || 'ud']));
+    const mpTipo = new Map(mpMeta.map((m) => [m.id, String(m.tipo || '').toUpperCase()]));
+    const mpUnidad = new Map(mpMeta.map((m) => [m.id, m.unidad_medida || 'ud']));
 
     const detalles = [];
     const faltantes = [];
@@ -559,17 +558,43 @@ async function detalleProduccion(req, res) {
 }
 
 /**
-* GET /api/produccion/:id/insumos
-* Devuelve las materias primas consumidas (sumadas) y detalle por lote.
-*/
+ * GET /api/produccion/:id/insumos
+ * Devuelve las materias primas consumidas (sumadas) y detalle por lote.
+ * Incluye CULTIVO (masa madre) aunque no genere movimientos de stock.
+ */
 async function insumosProduccion(req, res) {
   try {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ message: 'id inválido' });
 
-    const prod = await prisma.producciones.findUnique({ where: { id }, select: { id: true } });
-    if (!prod) return res.status(404).json({ message: 'Producción no encontrada' });
+    // Cabecera con cantidad producida e ingredientes de la receta (incluye tipo de MP)
+    const prodInfo = await prisma.producciones.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        cantidad_producida: true,
+        receta_id: true,
+        recetas: {
+          select: {
+            id: true,
+            nombre: true,
+            ingredientes_receta: {
+              select: {
+                id: true,
+                materia_prima_id: true,
+                cantidad: true, // en unidad base de la MP
+                materias_primas: {
+                  select: { id: true, nombre: true, unidad_medida: true, tipo: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!prodInfo) return res.status(404).json({ message: 'Producción no encontrada' });
 
+    // Movimientos de stock (para todo lo que sí descuenta)
     const movs = await prisma.movimientos_materia_prima.findMany({
       where: { ref_tipo: 'PRODUCCION', ref_id: id, tipo: 'SALIDA' },
       orderBy: [{ fecha: 'asc' }, { id: 'asc' }],
@@ -579,7 +604,10 @@ async function insumosProduccion(req, res) {
       },
     });
 
+    // Agregador común (sumamos movimientos y luego CULTIVO)
     const map = new Map(); // mpId -> { mp, total, detalle[] }
+
+    // 1) Volcar movimientos (lo existente)
     for (const m of movs) {
       const mpId = m.materia_prima_id;
       const key = String(mpId);
@@ -590,14 +618,51 @@ async function insumosProduccion(req, res) {
         total: toDec(0),
         detalle: [],
       };
-      const cant = toDec(m.cantidad || 0);
+      const cant = toDec(m.cantidad || 0); // en unidad base
       curr.total = curr.total.plus(cant);
       curr.detalle.push({
         lote_id: m.lote_id,
         lote_codigo: m.lotes?.codigo || null,
         fecha_vencimiento: m.lotes?.fecha_vencimiento || null,
-        cantidad: cant.toString(), // en unidad base
+        cantidad: cant.toString(),
       });
+      map.set(key, curr);
+    }
+
+    // 2) Añadir CULTIVO (masa madre) desde ingredientes de la receta
+    //    No genera movimiento de stock, pero sí debe aparecer en trazabilidad.
+    const qtyProducida = toDec(prodInfo.cantidad_producida || 0);
+    const ings = Array.isArray(prodInfo.recetas?.ingredientes_receta)
+      ? prodInfo.recetas.ingredientes_receta
+      : [];
+
+    for (const ing of ings) {
+      const mp = ing.materias_primas;
+      const tipo = String(mp?.tipo || '').toUpperCase();
+
+      if (tipo !== 'CULTIVO') continue; // solo masa madre
+
+      const mpId = Number(ing.materia_prima_id);
+      const requerido = toDec(ing.cantidad || 0).times(qtyProducida); // en unidad base
+
+      const key = String(mpId);
+      const curr = map.get(key) || {
+        materia_prima_id: mpId,
+        nombre: mp?.nombre || `MP #${mpId}`,
+        unidad_base: (mp?.unidad_medida || 'ud').toLowerCase(),
+        total: toDec(0),
+        detalle: [],
+      };
+
+      curr.total = curr.total.plus(requerido);
+      // Colocamos un "detalle sintético" sin lote
+      curr.detalle.push({
+        lote_id: null,
+        lote_codigo: null,
+        fecha_vencimiento: null,
+        cantidad: requerido.toString(),
+      });
+
       map.set(key, curr);
     }
 
@@ -605,8 +670,8 @@ async function insumosProduccion(req, res) {
       materia_prima_id: x.materia_prima_id,
       nombre: x.nombre,
       unidad_base: x.unidad_base,
-      total: x.total.toString(),
-      detalle: x.detalle,
+      total: x.total.toString(), // en unidad base
+      detalle: x.detalle, // [{ lote_id|null, lote_codigo, fecha_vencimiento, cantidad }]
     }));
 
     res.json({ items });
@@ -623,5 +688,3 @@ module.exports = {
   detalleProduccion,
   insumosProduccion,
 };
-
-
