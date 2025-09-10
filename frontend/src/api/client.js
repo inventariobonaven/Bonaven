@@ -2,14 +2,16 @@
 import axios from 'axios';
 
 const RAW = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const BASE = RAW.replace(/\/$/, ''); // sin / al final
-const API = `${BASE}/api`; // siempre termina en /api
+const ROOT = RAW.replace(/\/+$/, ''); // sin slash final
+const API = /\/api$/i.test(ROOT) ? ROOT : `${ROOT}/api`; // si ya trae /api no lo repite
 
 const api = axios.create({
   baseURL: API,
   withCredentials: true,
   headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
 });
+
+// (resto igual…)
 
 function getAuth() {
   try {
