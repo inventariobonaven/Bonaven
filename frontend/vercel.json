@@ -4,6 +4,6 @@
       "source": "/api/:path*",
       "destination": "https://inventario-backend-g88c.onrender.com/api/:path*"
     },
-    { "source": "/(.*)", "destination": "/" }
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
