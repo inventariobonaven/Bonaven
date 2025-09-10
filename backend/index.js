@@ -27,7 +27,6 @@ const corsOptions = {
 // CORS para todas las rutas
 app.use(cors(corsOptions));
 
-// ⚠️ Express 5 no admite '*' como path. Usa RegExp para preflight global:
 app.options(/.*/, cors(corsOptions));
 
 /* ----------- Middlewares ------------ */
