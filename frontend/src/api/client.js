@@ -3,7 +3,7 @@ import axios from 'axios';
 
 const root = (import.meta.env.VITE_API_URL || 'http://localhost:3001').replace(/\/+$/, '');
 const api = axios.create({
-  baseURL: `${root}/api`, // 👈 SIEMPRE apunta a /api
+  baseURL: `${root}/api`,
   withCredentials: true,
   headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
 });
