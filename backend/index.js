@@ -15,16 +15,20 @@ const ORIGINS = ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : DEFAULT_ORIGINS;
 
 const corsOptions = {
   origin(origin, cb) {
-    if (!origin) return cb(null, true);
+    if (!origin) return cb(null, true); // requests del mismo host / curl sin Origin
     if (ORIGINS.includes(origin) || /localhost:\d+$/i.test(origin)) return cb(null, true);
     return cb(new Error(`CORS: Origin ${origin} no permitido`));
   },
   credentials: true,
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 };
 
+// CORS para todas las rutas
 app.use(cors(corsOptions));
-// 👇 Agrega esta línea para atender preflights explícitamente
-app.options('*', cors(corsOptions));
+
+// ⚠️ Express 5 no admite '*' como path. Usa RegExp para preflight global:
+app.options(/.*/, cors(corsOptions));
 
 /* ----------- Middlewares ------------ */
 app.use(express.json({ limit: '1mb' }));
