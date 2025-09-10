@@ -33,3 +33,4 @@ backend/src/generated/prisma/
 
 # Vite
 frontend/.vite/
+package-lock.json

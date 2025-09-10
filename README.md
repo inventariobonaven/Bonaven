@@ -1,22 +1,15 @@
-# Bonaven / Inventario-Producción
+# Bonaven · Inventario / Producción
 
-## Backend
+Sistema para gestionar materias primas, recetas, producción y stock de producto terminado.
 
-1. Copia `backend/.env.example` a `backend/.env` y completa variables.
-2. `cd backend && npm ci && npm run dev` (o `npm start` en producción).
+## Requisitos
 
-## Frontend
+- Node.js 18+
+- Base de datos configurada (ver `backend/.env.example`)
 
-1. Copia `frontend/.env.example` a `frontend/.env`.
-2. `cd frontend && npm ci && npm run dev` (build: `npm run build`).
+## Backend (API)
 
-## Deploy (resumen)
-
-- Backend: Render/Railway — build: `npm ci && npm run postinstall` y start: `npm start` (root: backend).
-- Frontend: Vercel/Netlify — build: `npm ci && npm run build` (root: frontend), output: `dist`.
-- Configura `VITE_API_URL` apuntando al backend desplegado.
-
-## CI Status
-
-![Backend CI](https://github.com/Juanjorodriguez09/Bonaven/actions/workflows/backend-ci.yml/badge.svg)
-![Frontend CI](https://github.com/Juanjorodriguez09/Bonaven/actions/workflows/frontend-ci.yml/badge.svg)
+1. Copia `.env`:
+   ```bash
+   cp backend/.env.example backend/.env
+   ```
