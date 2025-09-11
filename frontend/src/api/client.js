@@ -3,12 +3,13 @@ import axios from 'axios';
 
 /** Normaliza la URL del backend y garantiza el sufijo /api */
 function buildApiBase(raw) {
-  const root = (raw || 'http://localhost:3001').replace(/\/+$/, ''); 
+  const root = (raw || 'http://localhost:3001').replace(/\/+$/, ''); // sin slash final
   return /\/api$/i.test(root) ? root : `${root}/api`;
 }
 
 export const API_BASE = buildApiBase(import.meta.env.VITE_API_URL);
 
+/** Instancia axios */
 const api = axios.create({
   baseURL: API_BASE,
   withCredentials: true,
@@ -18,7 +19,13 @@ const api = axios.create({
   },
 });
 
-// ---- Helpers de auth (localStorage) ----
+// Debug útil: ver a dónde está apuntando el frontend ya compilado
+if (typeof window !== 'undefined') {
+  window.API_BASE = API_BASE;
+  console.log('[api] baseURL =', API_BASE);
+}
+
+/* ====== Helpers de auth (localStorage) ====== */
 const LS_AUTH = 'auth';
 const LS_TOKEN = 'token';
 
@@ -29,7 +36,6 @@ function getAuth() {
     return null;
   }
 }
-
 function clearAuth() {
   try {
     localStorage.removeItem(LS_AUTH);
@@ -37,36 +43,31 @@ function clearAuth() {
   } catch {}
 }
 
-// ---- Interceptor: agrega Bearer excepto en /auth/* ----
+/* ====== Interceptores ====== */
 api.interceptors.request.use((config) => {
-  try {
-    const path = String(config.url || '');
-    const isAuthEndpoint = path.startsWith('/auth') || path.includes('/auth/');
-    if (!isAuthEndpoint) {
-      const auth = getAuth();
-      const token = auth?.token || localStorage.getItem(LS_TOKEN);
-      if (token) config.headers.Authorization = `Bearer ${token}`;
-    }
-  } catch {
-    clearAuth();
+  const path = String(config.url || '');
+  const isAuthEndpoint = path.startsWith('/auth') || path.includes('/auth/');
+  if (!isAuthEndpoint) {
+    const auth = getAuth();
+    const token = auth?.token || localStorage.getItem(LS_TOKEN);
+    if (token) config.headers = { ...config.headers, Authorization: `Bearer ${token}` };
   }
   return config;
 });
 
-// ---- Interceptor: expira sesión y redirige a /login ----
 let redirecting = false;
-
 api.interceptors.response.use(
   (res) => res,
   (error) => {
     const status = error?.response?.status;
-    const onLogin = window.location.pathname === '/login';
-
+    const onLogin = typeof window !== 'undefined' && window.location.pathname === '/login';
     if ((status === 401 || status === 403 || status === 419) && !onLogin) {
       if (!redirecting) {
         redirecting = true;
         clearAuth();
-        window.location.replace('/login?expired=1');
+        const u = new URL('/login', window.location.origin);
+        u.searchParams.set('expired', '1');
+        window.location.replace(u.toString());
       }
     }
     return Promise.reject(error);
