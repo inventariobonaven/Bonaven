@@ -1,8 +1,9 @@
+// src/middlewares/auth.js
 const jwt = require('jsonwebtoken');
 const prisma = require('../database/prismaClient');
 require('dotenv').config();
 
-/** Normaliza: mayúsculas y sin acentos */
+/* -------- helpers -------- */
 function normalizeRole(v) {
   return String(v || '')
     .normalize('NFD')
@@ -11,7 +12,6 @@ function normalizeRole(v) {
     .trim();
 }
 
-/** Permisos por rol */
 function getPermissionsByRole(role) {
   const R = normalizeRole(role);
   const map = {
@@ -22,6 +22,7 @@ function getPermissionsByRole(role) {
       'RECETAS_MANAGE',
       'PRODUCCION_MANAGE',
       'VENTAS_MANAGE',
+      'PRODUCCION_VIEW',
     ],
     PRODUCCION: [
       'PRODUCCION_VIEW',
@@ -32,16 +33,14 @@ function getPermissionsByRole(role) {
   return map[R] || [];
 }
 
-/** 🔔 Banner de versión */
-console.log('[AUTH MW] v=mp-read-authenticated-v3');
-
-/** Autenticación: valida JWT y carga req.user + req.permissions */
+/* --- auth --- */
 async function authenticateToken(req, res, next) {
   try {
     const header = req.headers['authorization'] || req.headers['Authorization'];
     if (!header) return res.status(401).json({ message: 'Token requerido' });
 
     const token = header.startsWith('Bearer ') ? header.slice(7) : header;
+
     let payload;
     try {
       payload = jwt.verify(token, process.env.JWT_SECRET);
@@ -52,33 +51,17 @@ async function authenticateToken(req, res, next) {
     const pid = payload?.userId ?? payload?.id ?? payload?.user?.id;
     if (!pid) return res.status(401).json({ message: 'Token sin identificador de usuario' });
 
-    let user;
-    try {
-      user = await prisma.usuarios.findUnique({
-        where: { id: Number(pid) },
-        select: { id: true, usuario: true, nombre: true, rol: true, estado: true },
-      });
-    } catch (dbErr) {
-      console.error('Error de conexión a BD:', dbErr.code || dbErr.message);
-      return res.status(503).json({ message: 'BD no disponible. Intenta más tarde.' });
-    }
-
+    const user = await prisma.usuarios.findUnique({
+      where: { id: Number(pid) },
+      select: { id: true, usuario: true, nombre: true, rol: true, estado: true },
+    });
     if (!user) return res.status(401).json({ message: 'Usuario no encontrado' });
     if (user.estado === false) {
       return res.status(403).json({ message: 'Usuario inactivo. Contacte al administrador.' });
     }
 
-    const rolNorm = normalizeRole(user.rol);
-    const permissions = getPermissionsByRole(user.rol);
-
-    req.user = { ...user, rolNorm };
-    req.permissions = permissions;
-
-    // Log de quién llega
-    console.log(
-      `[AUTH] uid=${user.id} rol="${user.rol}" → rolNorm=${rolNorm} perms=[${permissions.join(',')}]`,
-    );
-
+    req.user = { ...user, rolNorm: normalizeRole(user.rol) };
+    req.permissions = getPermissionsByRole(user.rol);
     next();
   } catch (err) {
     console.error('authenticateToken error', err);
@@ -86,32 +69,25 @@ async function authenticateToken(req, res, next) {
   }
 }
 
-/** Autorización por roles */
-function authorizeRoles(...allowedRoles) {
-  const allow = allowedRoles.map(normalizeRole);
+function authorizeRoles(...allowed) {
+  const allow = allowed.map(normalizeRole);
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ message: 'No autenticado' });
-    const userRole = normalizeRole(req.user.rol);
-    if (!allow.includes(userRole)) {
-      return res.status(403).json({ message: 'No autorizado (rol)' });
-    }
+    const role = normalizeRole(req.user.rol);
+    if (!allow.includes(role)) return res.status(403).json({ message: 'No autorizado (rol)' });
     next();
   };
 }
 
-/** Autorización por permisos */
 function authorizePermissions(...required) {
   return (req, res, next) => {
     if (!req.permissions) return res.status(401).json({ message: 'No autenticado' });
     const missing = required.filter((p) => !req.permissions.includes(p));
-    if (missing.length) {
-      return res.status(403).json({ message: 'No autorizado (permiso)' });
-    }
+    if (missing.length) return res.status(403).json({ message: 'No autorizado (permiso)' });
     next();
   };
 }
 
-/* Aliases convenientes */
 const requireAuth = authenticateToken;
 const requireRole = (...roles) => authorizeRoles(...roles);
 const requireRoleAdmin = authorizeRoles('ADMIN');
