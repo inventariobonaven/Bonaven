@@ -3,40 +3,47 @@ import axios from 'axios';
 
 /** Normaliza la URL del backend y garantiza el sufijo /api */
 function buildApiBase(raw) {
-  const root = (raw || 'http://localhost:3001').replace(/\/+$/, ''); // sin slash final
+  const root = (raw || 'http://localhost:3001').replace(/\/+$/, '');
   return /\/api$/i.test(root) ? root : `${root}/api`;
 }
 
 export const API_BASE = buildApiBase(import.meta.env.VITE_API_URL);
 
-/** Instancia axios */
+/** ===== instancia axios ===== */
 const api = axios.create({
   baseURL: API_BASE,
-  withCredentials: true,
-  headers: {
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-  },
+  withCredentials: false, // ← no usamos cookies
+  headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
 });
 
-// Debug útil: ver a dónde está apuntando el frontend ya compilado
+/* Debug: ver a dónde está apuntando el frontend ya compilado */
 if (typeof window !== 'undefined') {
   window.API_BASE = API_BASE;
-  // eslint-disable-next-line no-console
   console.log('[api] baseURL =', API_BASE);
 }
 
-/* ====== Helpers de auth (localStorage) ====== */
+/* ===== helpers de auth ===== */
 const LS_AUTH = 'auth';
 const LS_TOKEN = 'token';
 
-function getAuth() {
+function readAuthObj() {
   try {
     return JSON.parse(localStorage.getItem(LS_AUTH) || 'null');
   } catch {
     return null;
   }
 }
+
+// Saca token de auth/token y LO SANEa (quita CR/LF y espacios)
+function getToken() {
+  const a = readAuthObj();
+  let t = a?.token || localStorage.getItem(LS_TOKEN) || '';
+  if (!t) return '';
+  return String(t)
+    .replace(/[\r\n]+/g, '')
+    .trim();
+}
+
 function clearAuth() {
   try {
     localStorage.removeItem(LS_AUTH);
@@ -44,14 +51,16 @@ function clearAuth() {
   } catch {}
 }
 
-/* ====== Interceptores ====== */
+/* ===== interceptores ===== */
 api.interceptors.request.use((config) => {
-  const path = String(config.url || '');
-  const isAuthEndpoint = path.startsWith('/auth') || path.includes('/auth/');
-  if (!isAuthEndpoint) {
-    const auth = getAuth();
-    const token = auth?.token || localStorage.getItem(LS_TOKEN);
-    if (token) config.headers = { ...config.headers, Authorization: `Bearer ${token}` };
+  const url = String(config.url || '');
+  const isLogin = url.includes('/auth/login'); // solo login SIN token
+  if (!isLogin) {
+    const token = getToken();
+    if (token) {
+      config.headers = config.headers || {};
+      config.headers.Authorization = `Bearer ${token}`;
+    }
   }
   return config;
 });
@@ -63,7 +72,7 @@ api.interceptors.response.use(
     const status = error?.response?.status;
     const onLogin = typeof window !== 'undefined' && window.location.pathname === '/login';
 
-    // 🔐 Redirigir SOLO cuando el token es inválido/expiró
+    // Token inválido/expirado → limpiar y enviar a /login (sin loop)
     if (status === 401 && !onLogin) {
       if (!redirecting) {
         redirecting = true;
@@ -72,10 +81,9 @@ api.interceptors.response.use(
         u.searchParams.set('expired', '1');
         window.location.replace(u.toString());
       }
-      return; // corta aquí
+      return;
     }
-
-    // 403/404/419/etc.: que lo maneje cada pantalla; no desloguear
+    // 403/404 etc. que lo maneje cada pantalla
     return Promise.reject(error);
   },
 );
