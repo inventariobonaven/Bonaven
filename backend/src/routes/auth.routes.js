@@ -1,27 +1,19 @@
 const express = require('express');
 const router = express.Router();
-
 const authCtrl = require('../controllers/auth.controller');
-const { authenticateToken, getPermissionsByRole } = require('../middlewares/auth');
+const { authenticateToken } = require('../middlewares/auth');
 
 router.post('/login', authCtrl.login);
 
 function meHandler(req, res) {
-  const user = req.user || {};
-  const safeUser = {
-    id: user.id ?? null,
-    usuario: user.usuario ?? null,
-    nombre: user.nombre ?? null,
-    rol: user.rol ?? null,
-    estado: user.estado ?? null,
-    rolNorm: user.rolNorm ?? (user.rol ? String(user.rol).toUpperCase() : null),
-  };
-  const permissions =
-    Array.isArray(req.permissions) && req.permissions.length
-      ? req.permissions
-      : getPermissionsByRole(safeUser.rol);
-
-  res.json({ user: safeUser, permissions });
+  const safeUser = { ...req.user };
+  delete safeUser.contrasena;
+  res.json({
+    user: safeUser,
+    role: safeUser?.rol || null,
+    roleNorm: safeUser?.rolNorm || null,
+    permissions: req.permissions || [],
+  });
 }
 
 router.get('/me', authenticateToken, meHandler);

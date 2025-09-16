@@ -1,84 +1,100 @@
+// backend/src/routes/materiasPrimas.routes.js
 const express = require('express');
 const router = express.Router();
 
 const ctrl = require('../controllers/materiasPrimas.controller');
 const { authenticateToken } = require('../middlewares/auth');
 
-/** 🔔 Banner de versión y “ping” */
-console.log('[MP ROUTES] v=mp-read-authenticated-v3');
-
-/** Log rápido para Render */
-function logWho(req, _res, next) {
-  const r = String(req?.user?.rol || '');
-  const rn = String(req?.user?.rolNorm || '');
-  const perms = Array.isArray(req?.permissions) ? req.permissions.join(',') : '';
-  console.log(
-    `[MP ROUTE] uid=${req?.user?.id} rol="${r}" rolNorm=${rn} perms=[${perms}] ${req.method} ${req.originalUrl}`,
-  );
-  next();
+/* ============ Helpers ============ */
+function norm(v) {
+  return String(v || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .trim();
+}
+function isAdmin(req) {
+  return norm(req?.user?.rol) === 'ADMIN';
 }
 
-/** Ruta de diagnóstico (ver que este archivo esté activo) */
+/* ============ Diagnóstico rápido (¡deja esto!) ============ */
+// NO requiere token: sirve para confirmar que el código nuevo sí está desplegado
 router.get('/__ping', (_req, res) => {
-  res.json({ ok: true, route: 'materiasPrimas', version: 'mp-read-authenticated-v3' });
+  res.json({
+    ok: true,
+    route: 'materias-primas',
+    time: new Date().toISOString(),
+    build: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null,
+  });
 });
 
-/* ===== CRUD ===== */
+// Requiere token: muestra qué usuario/rol/permisos llegan al backend
+router.get('/__debug', authenticateToken, (req, res) => {
+  res.json({
+    user: req.user || null,
+    role: req.user?.rol || null,
+    roleNorm: norm(req.user?.rol),
+    permissions: req.permissions || [],
+    authzHeader: req.headers['authorization'] || req.headers['Authorization'] || null,
+  });
+});
 
-/** Crear (solo ADMIN) */
+/* ============ Reglas ============ */
+/*
+ * REGLA: PRODUCCION y ADMIN pueden LISTAR/VER MPs.
+ *        Solo ADMIN puede crear/editar/cambiar estado/eliminar.
+ */
+
+// Crear (solo ADMIN)
 router.post(
   '/',
   authenticateToken,
   (req, res, next) => {
-    const isAdmin = String(req.user?.rolNorm || req.user?.rol || '').toUpperCase() === 'ADMIN';
-    return isAdmin
-      ? next()
-      : res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
+    if (!isAdmin(req))
+      return res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
+    next();
   },
   ctrl.crearMateriaPrima,
 );
 
-/** 🔓 Listar (cualquier autenticado) */
-router.get('/', authenticateToken, logWho, ctrl.listarMateriasPrimas);
+// Listar (ADMIN o PRODUCCION)  ← ESTA ES LA QUE NECESITA CULTIVOS
+router.get('/', authenticateToken, ctrl.listarMateriasPrimas);
 
-/** 🔓 Obtener (cualquier autenticado) */
-router.get('/:id', authenticateToken, logWho, ctrl.obtenerMateriaPrima);
+// Obtener por id (ADMIN o PRODUCCION)
+router.get('/:id', authenticateToken, ctrl.obtenerMateriaPrima);
 
-/** Actualizar (solo ADMIN) */
+// Actualizar (solo ADMIN)
 router.put(
   '/:id',
   authenticateToken,
   (req, res, next) => {
-    const isAdmin = String(req.user?.rolNorm || req.user?.rol || '').toUpperCase() === 'ADMIN';
-    return isAdmin
-      ? next()
-      : res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
+    if (!isAdmin(req))
+      return res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
+    next();
   },
   ctrl.actualizarMateriaPrima,
 );
 
-/** Cambiar estado (solo ADMIN) */
+// Cambiar estado (solo ADMIN)
 router.patch(
   '/:id/estado',
   authenticateToken,
   (req, res, next) => {
-    const isAdmin = String(req.user?.rolNorm || req.user?.rol || '').toUpperCase() === 'ADMIN';
-    return isAdmin
-      ? next()
-      : res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
+    if (!isAdmin(req))
+      return res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
+    next();
   },
   ctrl.cambiarEstadoMateriaPrima,
 );
 
-/** Eliminar (solo ADMIN) */
+// Eliminar (solo ADMIN)
 router.delete(
   '/:id',
   authenticateToken,
   (req, res, next) => {
-    const isAdmin = String(req.user?.rolNorm || req.user?.rol || '').toUpperCase() === 'ADMIN';
-    return isAdmin
-      ? next()
-      : res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
+    if (!isAdmin(req))
+      return res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
+    next();
   },
   ctrl.eliminarMateriaPrima,
 );
