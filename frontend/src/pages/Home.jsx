@@ -107,17 +107,10 @@ export default function Home() {
               <h3 style={{ marginTop: 0 }}>¿Qué puedes hacer aquí?</h3>
               <ul style={{ marginTop: 6 }}>
                 <li>
-                  Registrar entradas de <strong>lotes</strong> con fechas de ingreso y vencimiento.
+                  Registrar produccion dependiendo la <strong>Masa</strong>.
                 </li>
                 <li>
-                  Actualizar <strong>estado</strong> de materias primas y lotes según disponibilidad
-                  real.
-                </li>
-                <li>
-                  Reportar <strong>consumos</strong> para producción siguiendo la lógica FIFO.
-                </li>
-                <li>
-                  Notificar posibles <strong>vencimientos</strong> detectados en bodega.
+                  Registra cantidad usada en la alimentacion de la <strong>Masa Madre</strong>
                 </li>
               </ul>
               <p className="muted" style={{ marginTop: 6 }}>
