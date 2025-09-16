@@ -1,28 +1,28 @@
 // src/pages/Producciones.jsx
-import { useEffect, useRef, useState } from "react";
-import api from "../api/client";
+import { useEffect, useRef, useState } from 'react';
+import api from '../api/client';
 
 /* ===== UI ===== */
-function Toast({ type = "success", message, onClose }) {
+function Toast({ type = 'success', message, onClose }) {
   if (!message) return null;
   return (
     <div
       className="card"
       style={{
-        position: "fixed",
+        position: 'fixed',
         right: 16,
         bottom: 16,
         zIndex: 10000,
-        borderColor: type === "error" ? "#ffccc7" : "var(--border)",
-        background: type === "error" ? "#fff2f0" : "#f6ffed",
+        borderColor: type === 'error' ? '#ffccc7' : 'var(--border)',
+        background: type === 'error' ? '#fff2f0' : '#f6ffed',
       }}
     >
-      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        <strong style={{ color: type === "error" ? "#a8071a" : "#237804" }}>
-          {type === "error" ? "Error" : "Listo"}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <strong style={{ color: type === 'error' ? '#a8071a' : '#237804' }}>
+          {type === 'error' ? 'Error' : 'Listo'}
         </strong>
         <span>{message}</span>
-        <button className="btn-outline" onClick={onClose} style={{ width: "auto" }}>
+        <button className="btn-outline" onClick={onClose} style={{ width: 'auto' }}>
           Cerrar
         </button>
       </div>
@@ -31,25 +31,27 @@ function Toast({ type = "success", message, onClose }) {
 }
 
 const fmtDec = (x) => {
-  const n = typeof x === "string" ? parseFloat(x) : Number(x);
-  if (Number.isNaN(n)) return "0";
+  const n = typeof x === 'string' ? parseFloat(x) : Number(x);
+  if (Number.isNaN(n)) return '0';
   return (Math.round(n * 1000) / 1000).toString();
 };
 
 function toSmall(qty, baseUnit) {
   const n = Number(qty) || 0;
-  const u = String(baseUnit || "").toLowerCase();
-  if (u === "kg") return { value: n * 1000, unit: "g" };
-  if (u === "l") return { value: n * 1000, unit: "ml" };
-  if (u === "g") return { value: n, unit: "g" };
-  if (u === "ml") return { value: n, unit: "ml" };
-  return { value: n, unit: "ud" };
+  const u = String(baseUnit || '').toLowerCase();
+  if (u === 'kg') return { value: n * 1000, unit: 'g' };
+  if (u === 'l') return { value: n * 1000, unit: 'ml' };
+  if (u === 'g') return { value: n, unit: 'g' };
+  if (u === 'ml') return { value: n, unit: 'ml' };
+  return { value: n, unit: 'ud' };
 }
 
-/* ===== Popover (fixed) ===== */
-function Popover({ open, anchorRef, children, onClose }) {
+/* ===== Popover (posicionamiento inteligente) ===== */
+function Popover({ open, anchorRef, children, onClose, preferredWidth = 420, margin = 8 }) {
   const popRef = useRef(null);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: preferredWidth });
 
+  // Cerrar con click afuera
   useEffect(() => {
     function onDoc(e) {
       if (!open) return;
@@ -57,31 +59,64 @@ function Popover({ open, anchorRef, children, onClose }) {
       if (popRef?.current?.contains(e.target)) return;
       onClose?.();
     }
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
   }, [open, onClose, anchorRef]);
 
-  if (!open) return null;
+  // Cerrar con Escape
+  useEffect(() => {
+    function onKey(e) {
+      if (open && e.key === 'Escape') onClose?.();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
 
-  const rect = anchorRef?.current?.getBoundingClientRect?.();
-  const top = (rect?.bottom ?? 0) + 6; // fixed => coords relativos al viewport
-  const left = rect?.left ?? 0;
+  // Recalcular posición al abrir, redimensionar o hacer scroll
+  useEffect(() => {
+    function recalc() {
+      if (!open) return;
+      const rect = anchorRef?.current?.getBoundingClientRect?.();
+      if (!rect) return;
+
+      const vw = window.innerWidth;
+      const width = Math.min(preferredWidth, vw - margin * 2);
+
+      // Debajo del anchor, con límites a los bordes
+      const top = (rect.bottom ?? 0) + 6;
+      const rawLeft = rect.left ?? margin;
+      const left = Math.max(margin, Math.min(rawLeft, vw - margin - width));
+
+      setPos({ top, left, width });
+    }
+    recalc();
+    window.addEventListener('resize', recalc);
+    window.addEventListener('scroll', recalc, true);
+    return () => {
+      window.removeEventListener('resize', recalc);
+      window.removeEventListener('scroll', recalc, true);
+    };
+  }, [open, anchorRef, preferredWidth, margin]);
+
+  if (!open) return null;
 
   return (
     <div
       ref={popRef}
       className="card"
       style={{
-        position: "fixed",
-        top,
-        left : 1230 ,
+        position: 'fixed',
+        top: pos.top,
+        left: pos.left,
         zIndex: 9999,
-        minWidth: 320,
-        maxWidth: 520,
-        maxHeight: "60vh",
-        overflow: "auto",
-        boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
+        width: pos.width,
+        maxWidth: '90vw',
+        maxHeight: '60vh',
+        overflow: 'auto',
+        boxShadow: '0 6px 24px rgba(0,0,0,0.12)',
       }}
+      role="dialog"
+      aria-modal="true"
     >
       {children}
     </div>
@@ -89,36 +124,53 @@ function Popover({ open, anchorRef, children, onClose }) {
 }
 
 function InsumosContent({ data, loading }) {
-  if (loading) return <div className="muted" style={{ padding: 8 }}>Cargando…</div>;
+  if (loading)
+    return (
+      <div className="muted" style={{ padding: 8 }}>
+        Cargando…
+      </div>
+    );
   if (!data || data.length === 0) {
-    return <div className="muted" style={{ padding: 8 }}>No hay insumos consumidos</div>;
+    return (
+      <div className="muted" style={{ padding: 8 }}>
+        No hay insumos consumidos
+      </div>
+    );
   }
 
   return (
     <div style={{ padding: 8 }}>
       <div style={{ fontWeight: 600, marginBottom: 8 }}>Materias primas usadas</div>
-      <div style={{ display: "grid", gap: 8 }}>
+      <div style={{ display: 'grid', gap: 8 }}>
         {data.map((mp) => {
           const small = toSmall(mp.total, mp.unidad_base);
           return (
             <div key={mp.materia_prima_id} className="card" style={{ padding: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}
+              >
                 <div>
                   <strong>{mp.nombre}</strong>
                   <div className="muted">Unidad base: {mp.unidad_base}</div>
                 </div>
-                <div><strong>{fmtDec(small.value)} {small.unit}</strong></div>
+                <div>
+                  <strong>
+                    {fmtDec(small.value)} {small.unit}
+                  </strong>
+                </div>
               </div>
 
               {Array.isArray(mp.detalle) && mp.detalle.length > 0 && (
                 <div style={{ marginTop: 8 }}>
-                  <div className="muted" style={{ marginBottom: 4 }}>Lotes:</div>
+                  <div className="muted" style={{ marginBottom: 4 }}>
+                    Lotes:
+                  </div>
                   <table className="table">
                     <thead>
                       <tr>
                         <th style={{ width: 90 }}>Lote</th>
                         <th>Vence</th>
-                        <th style={{ textAlign: "right" }}>Usado</th>
+                        <th style={{ textAlign: 'right' }}>Usado</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -127,8 +179,14 @@ function InsumosContent({ data, loading }) {
                         return (
                           <tr key={`${mp.materia_prima_id}-${d.lote_id}-${i}`}>
                             <td>#{d.lote_codigo ? d.lote_codigo : `#${d.lote_id}`}</td>
-                            <td>{d.fecha_vencimiento ? new Date(d.fecha_vencimiento).toLocaleDateString() : "-"}</td>
-                            <td style={{ textAlign: "right" }}>{fmtDec(s.value)} {s.unit}</td>
+                            <td>
+                              {d.fecha_vencimiento
+                                ? new Date(d.fecha_vencimiento).toLocaleDateString()
+                                : '-'}
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              {fmtDec(s.value)} {s.unit}
+                            </td>
                           </tr>
                         );
                       })}
@@ -147,10 +205,10 @@ function InsumosContent({ data, loading }) {
 /* ===== Página ===== */
 export default function Producciones() {
   // filtros
-  const [desde, setDesde] = useState("");
-  const [hasta, setHasta] = useState("");
-  const [recetaId, setRecetaId] = useState("");
-  const [q, setQ] = useState("");
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [recetaId, setRecetaId] = useState('');
+  const [q, setQ] = useState('');
 
   // datos
   const [recetas, setRecetas] = useState([]);
@@ -163,7 +221,7 @@ export default function Producciones() {
   const [pageSize, setPageSize] = useState(50);
   const [loading, setLoading] = useState(true);
 
-  const [toast, setToast] = useState({ type: "success", message: "" });
+  const [toast, setToast] = useState({ type: 'success', message: '' });
 
   // popover/caché
   const [openPopId, setOpenPopId] = useState(null);
@@ -175,12 +233,12 @@ export default function Producciones() {
     setLoadingRecetas(true);
     try {
       const params = new URLSearchParams();
-      params.set("estado", "true");
+      params.set('estado', 'true');
       const { data } = await api.get(`/recetas?${params.toString()}`);
       setRecetas(Array.isArray(data) ? data : []);
     } catch {
       setRecetas([]);
-      setToast({ type: "error", message: "No se pudieron cargar recetas" });
+      setToast({ type: 'error', message: 'No se pudieron cargar recetas' });
     } finally {
       setLoadingRecetas(false);
     }
@@ -190,12 +248,12 @@ export default function Producciones() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (desde) params.set("desde", desde);
-      if (hasta) params.set("hasta", hasta);
-      if (recetaId) params.set("receta_id", String(recetaId));
-      if (q.trim()) params.set("q", q.trim());
-      params.set("page", String(customPage));
-      params.set("pageSize", String(pageSize));
+      if (desde) params.set('desde', desde);
+      if (hasta) params.set('hasta', hasta);
+      if (recetaId) params.set('receta_id', String(recetaId));
+      if (q.trim()) params.set('q', q.trim());
+      params.set('page', String(customPage));
+      params.set('pageSize', String(pageSize));
 
       const { data } = await api.get(`/produccion?${params.toString()}`);
       const rows = Array.isArray(data?.items) ? data.items : [];
@@ -207,7 +265,10 @@ export default function Producciones() {
     } catch (e) {
       setItems([]);
       setTotal(0);
-      setToast({ type: "error", message: e?.response?.data?.message || "Error cargando producciones" });
+      setToast({
+        type: 'error',
+        message: e?.response?.data?.message || 'Error cargando producciones',
+      });
     } finally {
       setLoading(false);
     }
@@ -219,10 +280,10 @@ export default function Producciones() {
   }, []);
 
   function resetFilters() {
-    setDesde("");
-    setHasta("");
-    setRecetaId("");
-    setQ("");
+    setDesde('');
+    setHasta('');
+    setRecetaId('');
+    setQ('');
     setOpenPopId(null);
     loadProducciones(1);
   }
@@ -238,7 +299,6 @@ export default function Producciones() {
       try {
         setLoadingInsumosId(prodId);
         const { data } = await api.get(`/produccion/${prodId}/insumos`);
-        // acepta {items: [...]} o [...]
         const asArray = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
         setInsumosCache((m) => {
           const copy = new Map(m);
@@ -247,8 +307,8 @@ export default function Producciones() {
         });
       } catch (e) {
         setToast({
-          type: "error",
-          message: e?.response?.data?.message || "No se pudieron cargar los insumos",
+          type: 'error',
+          message: e?.response?.data?.message || 'No se pudieron cargar los insumos',
         });
       } finally {
         setLoadingInsumosId(null);
@@ -261,7 +321,8 @@ export default function Producciones() {
       <div className="card">
         <h2 style={{ marginTop: 0 }}>Historial de producción</h2>
         <div className="muted" style={{ marginBottom: 12 }}>
-          Filtra por fecha, receta o texto (en observación/nombre de receta). Haz click en “Insumos” para ver lo consumido.
+          Filtra por fecha, receta o texto (en observación/nombre de receta). Haz click en “Insumos”
+          para ver lo consumido.
         </div>
 
         {/* Filtros */}
@@ -269,35 +330,53 @@ export default function Producciones() {
           className="filters"
           style={{
             marginTop: 12,
-            display: "grid",
+            display: 'grid',
             gap: 8,
-            gridTemplateColumns: "160px 160px 1fr 1fr auto",
+            gridTemplateColumns: '160px 160px 1fr 1fr auto',
           }}
         >
-          <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} title="Desde" />
-          <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} title="Hasta" />
-          <select value={recetaId} onChange={(e) => setRecetaId(e.target.value)} disabled={loadingRecetas}>
-            <option value="">{loadingRecetas ? "Cargando..." : "Todas las recetas"}</option>
+          <input
+            type="date"
+            value={desde}
+            onChange={(e) => setDesde(e.target.value)}
+            title="Desde"
+          />
+          <input
+            type="date"
+            value={hasta}
+            onChange={(e) => setHasta(e.target.value)}
+            title="Hasta"
+          />
+          <select
+            value={recetaId}
+            onChange={(e) => setRecetaId(e.target.value)}
+            disabled={loadingRecetas}
+          >
+            <option value="">{loadingRecetas ? 'Cargando...' : 'Todas las recetas'}</option>
             {recetas.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.nombre}
-                {r.categoria ? ` · ${r.categoria.nombre}` : ""}
+                {r.categoria ? ` · ${r.categoria.nombre}` : ''}
               </option>
             ))}
           </select>
-          <input placeholder="Buscar (observación / receta)" value={q} onChange={(e) => setQ(e.target.value)} />
-          <div style={{ display: "flex", gap: 8 }}>
+          <input
+            placeholder="Buscar (observación / receta)"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <div style={{ display: 'flex', gap: 8 }}>
             <button
               className="btn-outline"
-              style={{ width: "auto" }}
+              style={{ width: 'auto' }}
               onClick={() => loadProducciones(1)}
               disabled={loading}
             >
-              {loading ? "Buscando…" : "Buscar"}
+              {loading ? 'Buscando…' : 'Buscar'}
             </button>
             <button
               className="btn-outline"
-              style={{ width: "auto" }}
+              style={{ width: 'auto' }}
               onClick={resetFilters}
               disabled={loading}
             >
@@ -313,10 +392,10 @@ export default function Producciones() {
               <tr>
                 <th style={{ width: 120 }}>Fecha</th>
                 <th>Receta</th>
-                <th style={{ width: 120, textAlign: "right" }}>Masas</th>
+                <th style={{ width: 120, textAlign: 'right' }}>Masas</th>
                 <th>Salida esperada</th>
                 <th style={{ width: 170 }}>Horario</th>
-                <th style={{ width: 110, textAlign: "right" }}>Duración</th>
+                <th style={{ width: 110, textAlign: 'right' }}>Duración</th>
                 <th>Observación</th>
                 <th style={{ width: 120 }}>Insumos</th>
               </tr>
@@ -331,7 +410,7 @@ export default function Producciones() {
               )}
               {!loading && items.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ padding: 14, textAlign: "center" }}>
+                  <td colSpan={8} style={{ padding: 14, textAlign: 'center' }}>
                     Sin resultados
                   </td>
                 </tr>
@@ -343,7 +422,7 @@ export default function Producciones() {
                   const rpb = Number(rec?.rendimiento_por_batch || 1);
                   const salida = rpb * Number(p.cantidad_producida || 0);
 
-                  const fechaStr = p.fecha ? new Date(p.fecha).toLocaleDateString() : "-";
+                  const fechaStr = p.fecha ? new Date(p.fecha).toLocaleDateString() : '-';
                   const hi = p.hora_inicio ? new Date(p.hora_inicio).toLocaleTimeString() : null;
                   const hf = p.hora_fin ? new Date(p.hora_fin).toLocaleTimeString() : null;
 
@@ -357,7 +436,7 @@ export default function Producciones() {
                     <tr key={p.id}>
                       <td>{fechaStr}</td>
                       <td>
-                        <div style={{ display: "flex", flexDirection: "column" }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
                           <strong>{rec?.nombre || `Receta #${p.receta_id}`}</strong>
                           {pres ? (
                             <span className="muted">
@@ -368,22 +447,31 @@ export default function Producciones() {
                           )}
                         </div>
                       </td>
-                      <td style={{ textAlign: "right" }}>{fmtDec(p.cantidad_producida)}</td>
+                      <td style={{ textAlign: 'right' }}>{fmtDec(p.cantidad_producida)}</td>
                       <td>
-                        {fmtDec(salida)}{" "}
-                        {pres ? `${pres.nombre} (${fmtDec(pres.cantidad)} ${pres.unidad_medida})` : "unidades"}
+                        {fmtDec(salida)}{' '}
+                        {pres
+                          ? `${pres.nombre} (${fmtDec(pres.cantidad)} ${pres.unidad_medida})`
+                          : 'unidades'}
                       </td>
-                      <td>{hi && hf ? `${hi} – ${hf}` : "—"}</td>
-                      <td style={{ textAlign: "right" }}>
-                        {p.duracion_minutos ? `${p.duracion_minutos} min` : "—"}
+                      <td>{hi && hf ? `${hi} – ${hf}` : '—'}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        {p.duracion_minutos ? `${p.duracion_minutos} min` : '—'}
                       </td>
-                      <td style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {p.observacion || "—"}
+                      <td
+                        style={{
+                          maxWidth: 320,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {p.observacion || '—'}
                       </td>
                       <td>
                         <button
                           className="btn-outline"
-                          style={{ width: "auto" }}
+                          style={{ width: 'auto' }}
                           ref={(el) => (anchorRefs.current[p.id].current = el)}
                           onClick={() => toggleInsumos(p.id)}
                           title="Ver insumos usados"
@@ -409,42 +497,43 @@ export default function Producciones() {
           <div
             style={{
               marginTop: 10,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
               gap: 8,
-              flexWrap: "wrap",
+              flexWrap: 'wrap',
             }}
           >
             <div className="muted">
-              {total} registro{total === 1 ? "" : "s"} · Página {page} / {totalPages}
+              {total} registro{total === 1 ? '' : 's'} · Página {page} / {totalPages}
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
               <button
                 className="btn-outline"
-                style={{ width: "auto" }}
+                style={{ width: 'auto' }}
                 disabled={loading || page <= 1}
                 onClick={() => loadProducciones(page - 1)}
               >
-                ◀ Anterior
+                ◀️ Anterior
               </button>
               <button
                 className="btn-outline"
-                style={{ width: "auto" }}
+                style={{ width: 'auto' }}
                 disabled={loading || page >= totalPages}
                 onClick={() => loadProducciones(page + 1)}
               >
-                Siguiente ▶
+                Siguiente ▶️
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      <Toast type={toast.type} message={toast.message} onClose={() => setToast({ ...toast, message: "" })} />
+      <Toast
+        type={toast.type}
+        message={toast.message}
+        onClose={() => setToast({ ...toast, message: '' })}
+      />
     </div>
   );
 }
-
-
-

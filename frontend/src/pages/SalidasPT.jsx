@@ -72,8 +72,8 @@ function formatCantidadLote(l) {
   if ((etapa === 'EMPAQUE' || etapa === 'HORNEO') && uxe > 0) {
     const pkg = Math.floor(uds / uxe);
     const rest = uds % uxe;
-    if (pkg > 0 && rest > 0) return `${pkg} pkg + ${rest} ud (${uds} ud)`;
-    if (pkg > 0) return `${pkg} pkg (${uds} ud)`;
+    if (pkg > 0 && rest > 0) return `${pkg} PQ + ${rest} ud (${uds} ud)`;
+    if (pkg > 0) return `${pkg} PQ (${uds} ud)`;
     return `${rest} ud`;
   }
   return `${uds} ud`;

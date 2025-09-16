@@ -22,6 +22,7 @@ const api = axios.create({
 // Debug útil: ver a dónde está apuntando el frontend ya compilado
 if (typeof window !== 'undefined') {
   window.API_BASE = API_BASE;
+  // eslint-disable-next-line no-console
   console.log('[api] baseURL =', API_BASE);
 }
 
@@ -61,7 +62,9 @@ api.interceptors.response.use(
   (error) => {
     const status = error?.response?.status;
     const onLogin = typeof window !== 'undefined' && window.location.pathname === '/login';
-    if ((status === 401 || status === 403 || status === 419) && !onLogin) {
+
+    // 🔐 Redirigir SOLO cuando el token es inválido/expiró
+    if (status === 401 && !onLogin) {
       if (!redirecting) {
         redirecting = true;
         clearAuth();
@@ -69,7 +72,10 @@ api.interceptors.response.use(
         u.searchParams.set('expired', '1');
         window.location.replace(u.toString());
       }
+      return; // corta aquí
     }
+
+    // 403/404/419/etc.: que lo maneje cada pantalla; no desloguear
     return Promise.reject(error);
   },
 );

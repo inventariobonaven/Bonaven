@@ -305,7 +305,7 @@ export default function Produccion() {
           </div>
 
           <div>
-            <label>Código de lote (opcional)</label>
+            <label>Código de lote</label>
             <input
               placeholder="Si lo dejas vacío se usará YYYYMMDD"
               value={loteCodigo}

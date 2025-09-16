@@ -1,3 +1,4 @@
+// src/pages/MovimientosPT.jsx
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/client';
 
@@ -35,6 +36,23 @@ const fmtDate = (x) => (x ? new Date(x).toLocaleDateString() : '—');
 /* ===== Orden alfabético ===== */
 const collator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
 const byNombre = (a, b) => collator.compare(String(a?.nombre || ''), String(b?.nombre || ''));
+
+/* ===== Helpers de cantidad (paquetes/unidades) ===== */
+const toInt = (n) => (Number.isFinite(Number(n)) ? Math.round(Number(n)) : 0);
+
+function formatCantidad(mov, productos) {
+  const prod = productos.find((p) => Number(p.id) === Number(mov.producto_id));
+  const uds = toInt(mov.cantidad);
+  const uxe = toInt(prod?.unidades_por_empaque);
+  if (uxe > 0) {
+    const pk = Math.floor(uds / uxe);
+    const rest = uds % uxe;
+    if (pk > 0 && rest > 0) return `${pk} PQ + ${rest} ud (${uds} ud)`;
+    if (pk > 0) return `${pk} PQ (${uds} ud)`;
+    return `${rest} ud`;
+  }
+  return `${uds} ud`;
+}
 
 /* ===== Página ===== */
 export default function MovimientosPT() {
@@ -264,7 +282,7 @@ export default function MovimientosPT() {
                         {m.tipo}
                       </span>
                     </td>
-                    <td style={{ textAlign: 'right' }}>{m.cantidad}</td>
+                    <td style={{ textAlign: 'right' }}>{formatCantidad(m, productos)}</td>
                     <td>{m.motivo || '—'}</td>
                     <td
                       className="muted"

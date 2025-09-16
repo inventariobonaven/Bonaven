@@ -838,7 +838,6 @@ export default function Recetas() {
       const text =
         !q ||
         r.nombre?.toLowerCase().includes(q) ||
-        r.productos_terminados?.nombre?.toLowerCase?.().includes(q) ||
         r.categoria?.nombre?.toLowerCase?.().includes(q);
 
       const status =
@@ -882,7 +881,7 @@ export default function Recetas() {
           style={{ marginTop: 12, display: 'grid', gap: 8, gridTemplateColumns: '1fr 180px 220px' }}
         >
           <input
-            placeholder="Buscar por nombre, producto o categoría…"
+            placeholder="Buscar por nombre o categoría…"
             value={filters.q}
             onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
           />
@@ -914,7 +913,6 @@ export default function Recetas() {
               <tr>
                 <th style={{ width: 80 }}>ID</th>
                 <th>Nombre</th>
-                <th>Producto</th>
                 <th>Categoría</th>
                 <th>Ingredientes</th>
                 <th>Estado</th>
@@ -924,14 +922,14 @@ export default function Recetas() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={7} style={{ padding: 14 }}>
+                  <td colSpan={6} style={{ padding: 14 }}>
                     Cargando…
                   </td>
                 </tr>
               )}
               {!loading && sorted.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ padding: 14, textAlign: 'center' }}>
+                  <td colSpan={6} style={{ padding: 14, textAlign: 'center' }}>
                     Sin resultados
                   </td>
                 </tr>
@@ -941,7 +939,6 @@ export default function Recetas() {
                   <tr key={r.id}>
                     <td>{r.id}</td>
                     <td>{r.nombre}</td>
-                    <td>{r.productos_terminados?.nombre || '-'}</td>
                     <td>{r.categoria?.nombre || '—'}</td>
                     <td>
                       {Array.isArray(r.ingredientes_receta) && r.ingredientes_receta.length > 0
@@ -1065,7 +1062,7 @@ export default function Recetas() {
         }}
       />
 
-      {/* NUEVO: Modal de mapeos PT */}
+      {/* Modal de mapeos PT */}
       <RecetaProductoMapModal
         open={mapOpen}
         receta={recetaSel}

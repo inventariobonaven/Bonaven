@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { listarCultivos, alimentarCultivo } from '../api/cultivos';
 import api from '../api/client';
 
-/* ====== UI helpers ====== */
+/* ---------- UI: toast ---------- */
 function Toast({ type = 'success', message, onClose }) {
   if (!message) return null;
   return (
@@ -16,7 +16,6 @@ function Toast({ type = 'success', message, onClose }) {
         borderColor: type === 'error' ? '#ffccc7' : 'var(--border)',
         background: type === 'error' ? '#fff2f0' : '#f6ffed',
       }}
-      role="alert"
     >
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <strong style={{ color: type === 'error' ? '#a8071a' : '#237804' }}>
@@ -31,28 +30,25 @@ function Toast({ type = 'success', message, onClose }) {
   );
 }
 
-/* ====== Utils ====== */
 const asNum = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
-/* ====== Página ====== */
 export default function Cultivos() {
   const [cultivos, setCultivos] = useState([]);
   const [mpList, setMpList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState({ type: 'success', message: '' });
 
-  // selección (auto: primer cultivo)
   const [selId, setSelId] = useState(null);
   const selected = useMemo(() => cultivos.find((c) => c.id === selId) || null, [cultivos, selId]);
 
-  // ----- Alimentación (solo harina) -----
+  // Alimentación
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [harinaMp, setHarinaMp] = useState('');
   const [harinaQty, setHarinaQty] = useState('');
   const [notas, setNotas] = useState('');
   const [submittingFeed, setSubmittingFeed] = useState(false);
 
-  // ----- Espolvoreo (proceso independiente) -----
+  // Espolvoreo
   const [espFecha, setEspFecha] = useState(new Date().toISOString().slice(0, 10));
   const [espMp, setEspMp] = useState('');
   const [espQty, setEspQty] = useState('');
@@ -66,7 +62,7 @@ export default function Cultivos() {
       const out = Array.isArray(data) ? data : [];
       out.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
       setCultivos(out);
-      if (!selId && out.length) setSelId(out[0].id); // auto-selección
+      if (!selId && out.length) setSelId(out[0].id);
     } catch (e) {
       setToast({
         type: 'error',
@@ -77,42 +73,43 @@ export default function Cultivos() {
     }
   }
 
+  // ⚠️ Volvemos al endpoint global de MPs
   async function loadMPs() {
     try {
       const { data } = await api.get('/materias-primas?estado=true');
       const list = Array.isArray(data) ? data : [];
-      list.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '')); // alfabético
+      list.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
       setMpList(list);
-    } catch {
+    } catch (e) {
       setMpList([]);
+      const msg =
+        e?.response?.status === 403
+          ? 'Sin permiso para listar Materias Primas (habilita PRODUCCION en el backend).'
+          : 'No se pudieron cargar las materias primas';
+      setToast({ type: 'error', message: msg });
     }
   }
 
   useEffect(() => {
     loadCultivos();
     loadMPs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ====== Submitters ====== */
   const canFeed =
     !!selected && String(harinaMp || '') !== '' && asNum(harinaQty) > 0 && !submittingFeed;
 
   async function submitFeed(e) {
     e.preventDefault();
     if (!canFeed || !selected) return;
-
     try {
       setSubmittingFeed(true);
-
-      const payload = {
+      await alimentarCultivo(selected.id, {
         fecha: fecha || null,
         harina_mp_id: Number(harinaMp),
-        harina_cantidad: Number(harinaQty).toFixed(3),
-        notas: notas?.trim() || null,
-      };
-
-      await alimentarCultivo(selected.id, payload);
-
+        harina_cantidad: Number(harinaQty),
+        notas: (notas || '').trim() || null,
+      });
       setToast({ type: 'success', message: 'Alimentación registrada' });
       setHarinaQty('');
       setNotas('');
@@ -132,17 +129,14 @@ export default function Cultivos() {
   async function submitEspolvoreo(e) {
     e.preventDefault();
     if (!canEsp || !selected) return;
-
     try {
       setSubmittingEsp(true);
-
       await api.post(`/cultivos/${selected.id}/espolvoreo`, {
         fecha: espFecha || null,
         mp_id: Number(espMp),
-        cantidad: Number(espQty).toFixed(3),
-        notas: espNotas?.trim() || null,
+        cantidad: Number(espQty),
+        notas: (espNotas || '').trim() || null,
       });
-
       setToast({ type: 'success', message: 'Espolvoreo registrado' });
       setEspQty('');
       setEspNotas('');
@@ -156,10 +150,8 @@ export default function Cultivos() {
     }
   }
 
-  /* ====== UI ====== */
   return (
     <div className="page">
-      {/* Header sin contador */}
       <div className="card" style={{ marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>Masa madre</h2>
         <div className="muted">
@@ -173,7 +165,6 @@ export default function Cultivos() {
         )}
       </div>
 
-      {/* Solo los formularios (sin buscador ni lista) */}
       <div style={{ display: 'grid', gap: 12 }}>
         {/* Alimentación */}
         <div className="card">
@@ -294,7 +285,6 @@ export default function Cultivos() {
         </div>
       </div>
 
-      {/* Toast */}
       <Toast
         type={toast.type}
         message={toast.message}

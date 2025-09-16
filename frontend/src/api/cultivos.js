@@ -1,13 +1,12 @@
-import api from "./client";
+// src/api/cultivos.js
+import api from './client';
 
-export const listarCultivos = (params = {}) =>
-  api.get("/cultivos", { params });
+// Lista los "cultivos" (MP con tipo=CULTIVO) – tu backend ya lo expone en /cultivos
+export function listarCultivos(params = {}) {
+  return api.get('/cultivos', { params });
+}
 
-export const alimentarCultivo = (id, payload) =>
-  api.post(`/cultivos/${id}/feed`, payload);
-
-export const ajustarCultivo = (id, payload) =>
-  api.post(`/cultivos/${id}/ajuste`, payload);
-
-
-
+// Alimentación de un cultivo (descuenta harina por FIFO)
+export function alimentarCultivo(id, payload) {
+  return api.post(`/cultivos/${id}/feed`, payload);
+}

@@ -1,48 +1,58 @@
 const express = require('express');
 const prisma = require('../database/prismaClient');
-const ctrl = require('../controllers/cultivos.controller'); // Solo usamos listarCultivos
+const ctrl = require('../controllers/cultivos.controller');
 const { descontarFIFO } = require('../services/fifo.services');
 
 const router = express.Router();
 
-/* ===================== Helpers ===================== */
-// Si viene "YYYY-MM-DD", agregamos la hora LOCAL actual (HH:mm:ss).
-// Si viene ISO con hora, se respeta.
-// Si viene vacío, devolvemos null para que DB use CURRENT_TIMESTAMP.
+/* Auth/roles opcionales (no rompen si no existen) */
+let requireAuth = (_req, _res, next) => next();
+let requireRole =
+  (..._roles) =>
+  (_req, _res, next) =>
+    next();
+try {
+  const authz = require('../middlewares/auth'); // ajusta si tu ruta es otra
+  if (typeof authz.requireAuth === 'function') requireAuth = authz.requireAuth;
+  if (typeof authz.requireRole === 'function') requireRole = authz.requireRole;
+} catch {}
+
+router.use(requireAuth);
+const allowProd = requireRole('ADMIN', 'PRODUCCION');
+
+/* ---------- helpers ---------- */
 function normalizeFecha(input) {
   if (!input) return null;
   const s = String(input).trim();
-
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
     const now = new Date();
     const hh = String(now.getHours()).padStart(2, '0');
     const mm = String(now.getMinutes()).padStart(2, '0');
     const ss = String(now.getSeconds()).padStart(2, '0');
-    return new Date(`${s}T${hh}:${mm}:${ss}`); // sin 'Z' => hora local
+    return new Date(`${s}T${hh}:${mm}:${ss}`);
   }
-
   const d = new Date(s);
-  return isNaN(d) ? null : d;
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 async function recalcStockMP(tx, mpId) {
   const sum = await tx.lotes_materia_prima.aggregate({
     where: { materia_prima_id: mpId, estado: { in: ['DISPONIBLE', 'RESERVADO'] } },
-    _sum: { cantidad: true }
+    _sum: { cantidad: true },
   });
   await tx.materias_primas.update({
     where: { id: mpId },
-    data: { stock_total: sum._sum.cantidad ?? 0 }
+    data: { stock_total: sum._sum.cantidad ?? 0 },
   });
 }
 
-/* ===================== Endpoints ===================== */
+/* ---------- endpoints ---------- */
 
-// Listar cultivos (MP con tipo=CULTIVO)
-router.get('/', ctrl.listarCultivos);
+// Lista de cultivos (MP con tipo=CULTIVO) vía controller existente
+router.get('/', allowProd, ctrl.listarCultivos);
 
-// Alimentación (descuenta harina) — motivo fijo: ALIMENTACION MASA MADRE
-router.post('/:id/feed', async (req, res) => {
+// Alimentación (descuenta harina)
+router.post('/:id/feed', allowProd, async (req, res) => {
   const cultivoId = Number(req.params.id);
   const { fecha, harina_mp_id, harina_cantidad, notas } = req.body || {};
 
@@ -52,8 +62,7 @@ router.post('/:id/feed', async (req, res) => {
   }
 
   try {
-    const when = normalizeFecha(fecha); // null => DB pone CURRENT_TIMESTAMP
-
+    const when = normalizeFecha(fecha);
     const out = await prisma.$transaction(async (tx) => {
       await descontarFIFO(tx, Number(harina_mp_id), Number(harina_cantidad), {
         motivo: 'ALIMENTACION MASA MADRE',
@@ -62,9 +71,7 @@ router.post('/:id/feed', async (req, res) => {
         fecha: when || undefined, // undefined => CURRENT_TIMESTAMP
         observacion: (notas && String(notas).trim()) || '',
       });
-
       await recalcStockMP(tx, Number(harina_mp_id));
-
       return {
         cultivo_id: cultivoId,
         harina_mp_id: Number(harina_mp_id),
@@ -72,7 +79,6 @@ router.post('/:id/feed', async (req, res) => {
         fecha_usada: when ? when : 'CURRENT_TIMESTAMP',
       };
     });
-
     res.json({ ok: true, ...out });
   } catch (e) {
     res.status(400).json({ message: e?.message || 'No se pudo registrar la alimentación' });
@@ -80,7 +86,7 @@ router.post('/:id/feed', async (req, res) => {
 });
 
 // Espolvoreo (descuenta harina; no toca stock del cultivo)
-router.post('/:id/espolvoreo', async (req, res) => {
+router.post('/:id/espolvoreo', allowProd, async (req, res) => {
   const cultivoId = Number(req.params.id);
   const { fecha, mp_id, cantidad, notas } = req.body || {};
 
@@ -91,7 +97,6 @@ router.post('/:id/espolvoreo', async (req, res) => {
 
   try {
     const when = normalizeFecha(fecha);
-
     const out = await prisma.$transaction(async (tx) => {
       await descontarFIFO(tx, Number(mp_id), Number(cantidad), {
         motivo: 'ESPOLVOREO',
@@ -100,9 +105,7 @@ router.post('/:id/espolvoreo', async (req, res) => {
         fecha: when || undefined,
         observacion: (notas && String(notas).trim()) || '',
       });
-
       await recalcStockMP(tx, Number(mp_id));
-
       return {
         cultivo_id: cultivoId,
         mp_id: Number(mp_id),
@@ -110,15 +113,14 @@ router.post('/:id/espolvoreo', async (req, res) => {
         fecha_usada: when ? when : 'CURRENT_TIMESTAMP',
       };
     });
-
     res.json({ ok: true, ...out });
   } catch (e) {
     res.status(400).json({ message: e?.message || 'No se pudo registrar el espolvoreo' });
   }
 });
 
-// Historial de movimientos del cultivo (para el front si lo necesitas)
-router.get('/:id/movimientos', async (req, res) => {
+// Historial (opcional)
+router.get('/:id/movimientos', allowProd, async (req, res) => {
   try {
     const cultivoId = Number(req.params.id);
     const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
@@ -127,9 +129,15 @@ router.get('/:id/movimientos', async (req, res) => {
       orderBy: [{ fecha: 'desc' }, { id: 'desc' }],
       take: limit,
       select: {
-        id: true, tipo: true, cantidad: true, fecha: true, motivo: true,
-        ref_tipo: true, ref_id: true, lote_id: true
-      }
+        id: true,
+        tipo: true,
+        cantidad: true,
+        fecha: true,
+        motivo: true,
+        ref_tipo: true,
+        ref_id: true,
+        lote_id: true,
+      },
     });
     res.json(rows);
   } catch (e) {
@@ -138,6 +146,3 @@ router.get('/:id/movimientos', async (req, res) => {
 });
 
 module.exports = router;
-
-
-

@@ -1,11 +1,20 @@
-// src/middlewares/auth.js
+// backend/src/middlewares/auth.js
 const jwt = require('jsonwebtoken');
 const prisma = require('../database/prismaClient');
 require('dotenv').config();
 
-/** Mapeo de permisos por rol */
+/** Normaliza rol: mayúsculas + sin acentos */
+function normalizeRole(v) {
+  return String(v || '')
+    .normalize('NFD') // separa acentos
+    .replace(/[\u0300-\u036f]/g, '') // quita marcas diacríticas
+    .toUpperCase()
+    .trim();
+}
+
+/** Mapeo de permisos por rol (claves normalizadas) */
 function getPermissionsByRole(role) {
-  const r = role && role.toString().toUpperCase();
+  const R = normalizeRole(role);
   const map = {
     ADMIN: [
       'USUARIOS_MANAGE',
@@ -21,7 +30,7 @@ function getPermissionsByRole(role) {
       'PRODUCCION_VIEW',
     ],
   };
-  return map[r] || [];
+  return map[R] || [];
 }
 
 /** Autenticación: valida JWT y carga req.user + req.permissions */
@@ -39,11 +48,9 @@ async function authenticateToken(req, res, next) {
       return res.status(401).json({ message: 'Token inválido o expirado' });
     }
 
-    // Acepta distintas formas de payload
     const pid = payload?.userId ?? payload?.id ?? payload?.user?.id;
     if (!pid) return res.status(401).json({ message: 'Token sin identificador de usuario' });
 
-    // Traer usuario “fresco” desde DB (estado/rol actuales)
     let user;
     try {
       user = await prisma.usuarios.findUnique({
@@ -60,7 +67,8 @@ async function authenticateToken(req, res, next) {
       return res.status(403).json({ message: 'Usuario inactivo. Contacte al administrador.' });
     }
 
-    req.user = user;
+    // Adjunta rol normalizado (útil para logs o futuras decisiones)
+    req.user = { ...user, rolNorm: normalizeRole(user.rol) };
     req.permissions = getPermissionsByRole(user.rol);
     next();
   } catch (err) {
@@ -69,12 +77,12 @@ async function authenticateToken(req, res, next) {
   }
 }
 
-/** Autorización por roles. Uso: requireRole('ADMIN', 'PRODUCCION') */
+/** Autorización por roles. Uso: authorizeRoles('ADMIN','PRODUCCION') */
 function authorizeRoles(...allowedRoles) {
-  const allow = allowedRoles.map(r => String(r).toUpperCase());
+  const allow = allowedRoles.map(normalizeRole);
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ message: 'No autenticado' });
-    const userRole = String(req.user.rol).toUpperCase();
+    const userRole = normalizeRole(req.user.rol);
     if (!allow.includes(userRole)) {
       return res.status(403).json({ message: 'No autorizado (rol)' });
     }
@@ -86,7 +94,7 @@ function authorizeRoles(...allowedRoles) {
 function authorizePermissions(...required) {
   return (req, res, next) => {
     if (!req.permissions) return res.status(401).json({ message: 'No autenticado' });
-    const missing = required.filter(p => !req.permissions.includes(p));
+    const missing = required.filter((p) => !req.permissions.includes(p));
     if (missing.length) {
       return res.status(403).json({ message: 'No autorizado (permiso)' });
     }
@@ -94,26 +102,18 @@ function authorizePermissions(...required) {
   };
 }
 
-/* ====== Aliases para compatibilidad con rutas existentes ====== */
-// Nombre corto usado en rutas: requireAuth
+/* Aliases */
 const requireAuth = authenticateToken;
-// Nombre corto usado en rutas: requireRole
 const requireRole = (...roles) => authorizeRoles(...roles);
 const requireRoleAdmin = authorizeRoles('ADMIN');
 
 module.exports = {
-  // nombres originales
   authenticateToken,
   authorizeRoles,
   authorizePermissions,
   getPermissionsByRole,
-  // aliases compatibles
   requireAuth,
   requireRole,
   requireRoleAdmin,
-  // default export (útil si haces `const auth = require(...)`)
   default: authenticateToken,
 };
-
-
-

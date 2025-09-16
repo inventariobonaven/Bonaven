@@ -1,29 +1,29 @@
 // src/pages/ProductosPT.jsx
-import { useEffect, useMemo, useState } from "react";
-import api from "../api/client";
+import { useEffect, useMemo, useState } from 'react';
+import api from '../api/client';
 
-/* ========== UI Helpers (idénticos a MateriasPrimas) ========== */
-function Toast({ type = "success", message, onClose }) {
+/* ========== UI Helpers ========== */
+function Toast({ type = 'success', message, onClose }) {
   if (!message) return null;
   return (
     <div
       className="card"
       style={{
-        position: "fixed",
+        position: 'fixed',
         right: 16,
         bottom: 16,
         zIndex: 1000,
-        borderColor: type === "error" ? "#ffccc7" : "var(--border)",
-        background: type === "error" ? "#fff2f0" : "#f6ffed",
+        borderColor: type === 'error' ? '#ffccc7' : 'var(--border)',
+        background: type === 'error' ? '#fff2f0' : '#f6ffed',
       }}
       role="alert"
     >
-      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        <strong style={{ color: type === "error" ? "#a8071a" : "#237804" }}>
-          {type === "error" ? "Error" : "Listo"}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <strong style={{ color: type === 'error' ? '#a8071a' : '#237804' }}>
+          {type === 'error' ? 'Error' : 'Listo'}
         </strong>
         <span>{message}</span>
-        <button className="btn-outline" onClick={onClose} style={{ width: "auto" }}>
+        <button className="btn-outline" onClick={onClose} style={{ width: 'auto' }}>
           Cerrar
         </button>
       </div>
@@ -36,20 +36,20 @@ function Modal({ open, title, children, onClose }) {
   return (
     <div
       style={{
-        position: "fixed",
+        position: 'fixed',
         inset: 0,
-        background: "rgba(0,0,0,0.2)",
-        display: "grid",
-        placeItems: "center",
+        background: 'rgba(0,0,0,0.2)',
+        display: 'grid',
+        placeItems: 'center',
         zIndex: 999,
         padding: 12,
       }}
       onClick={onClose}
     >
       <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0 }}>{title}</h3>
-          <button className="btn-outline" onClick={onClose} style={{ width: "auto" }}>
+          <button className="btn-outline" onClick={onClose} style={{ width: 'auto' }}>
             ✕
           </button>
         </div>
@@ -59,16 +59,16 @@ function Modal({ open, title, children, onClose }) {
   );
 }
 
-function Confirm({ open, title = "Confirmar", message, onCancel, onConfirm }) {
+function Confirm({ open, title = 'Confirmar', message, onCancel, onConfirm }) {
   if (!open) return null;
   return (
     <Modal open={open} title={title} onClose={onCancel}>
-      <p style={{ margin: "8px 0 16px" }}>{message}</p>
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        <button className="btn-outline" onClick={onCancel} style={{ width: "auto" }}>
+      <p style={{ margin: '8px 0 16px' }}>{message}</p>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button className="btn-outline" onClick={onCancel} style={{ width: 'auto' }}>
           Cancelar
         </button>
-        <button className="btn-primary" onClick={onConfirm} style={{ width: "auto" }}>
+        <button className="btn-primary" onClick={onConfirm} style={{ width: 'auto' }}>
           Confirmar
         </button>
       </div>
@@ -76,15 +76,31 @@ function Confirm({ open, title = "Confirmar", message, onCancel, onConfirm }) {
   );
 }
 
+/* ===== Helpers ===== */
+const toInt = (n) => (Number.isFinite(Number(n)) ? Math.round(Number(n)) : 0);
+
+/** Muestra stock total en paquetes cuando aplica */
+function formatStockTotal(prod) {
+  const uds = toInt(prod?.stock_total);
+  const uxe = toInt(prod?.unidades_por_empaque); // unidades por empaque
+  if (uxe > 0) {
+    const pkgs = Math.floor(uds / uxe);
+    const rest = uds % uxe;
+    if (pkgs > 0 && rest > 0) return `${pkgs} PQ + ${rest} ud (${uds} ud)`;
+    if (pkgs > 0) return `${pkgs} PQ (${uds} ud)`;
+    return `${rest} ud`;
+  }
+  return `${uds} ud`;
+}
+
 /* ========== Form Crear/Editar ========== */
 const emptyForm = {
-  nombre: "",
+  nombre: '',
   estado: true,
-  empaque_mp_id: "",
-  bolsas_por_unidad: "1",
-  unidades_por_empaque: "",
-  descripcion_contenido: "",
-  // 👇 NUEVO
+  empaque_mp_id: '',
+  bolsas_por_unidad: '1',
+  unidades_por_empaque: '',
+  descripcion_contenido: '',
   requiere_congelacion_previa: false,
 };
 
@@ -94,13 +110,13 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
 
   const canSubmit = useMemo(() => {
     const okNombre = form?.nombre?.trim()?.length > 1;
-    const okBolsas = Number(form?.bolsas_por_unidad || "1") > 0;
+    const okBolsas = Number(form?.bolsas_por_unidad || '1') > 0;
     return okNombre && okBolsas;
   }, [form]);
 
   function handleChange(e) {
     const { name, value, type, checked } = e.target;
-    setForm((f) => ({ ...f, [name]: type === "checkbox" ? checked : value }));
+    setForm((f) => ({ ...f, [name]: type === 'checkbox' ? checked : value }));
   }
 
   function submit(e) {
@@ -110,10 +126,9 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
       nombre: form.nombre.trim(),
       estado: !!form.estado,
       empaque_mp_id: form.empaque_mp_id ? Number(form.empaque_mp_id) : null,
-      bolsas_por_unidad: String(form.bolsas_por_unidad || "1"),
+      bolsas_por_unidad: String(form.bolsas_por_unidad || '1'),
       unidades_por_empaque: form.unidades_por_empaque ? Number(form.unidades_por_empaque) : null,
       descripcion_contenido: form.descripcion_contenido?.trim() || null,
-      // 👇 NUEVO (se guarda en BD)
       requiere_congelacion_previa: !!form.requiere_congelacion_previa,
     });
   }
@@ -134,7 +149,7 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
 
         <div>
           <label>Empaque</label>
-          <select name="empaque_mp_id" value={form.empaque_mp_id ?? ""} onChange={handleChange}>
+          <select name="empaque_mp_id" value={form.empaque_mp_id ?? ''} onChange={handleChange}>
             <option value="">— Sin empaque —</option>
             {empaques.map((e) => (
               <option key={e.id} value={e.id}>
@@ -159,7 +174,7 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
           <input
             name="unidades_por_empaque"
             placeholder="ej. 5"
-            value={form.unidades_por_empaque ?? ""}
+            value={form.unidades_por_empaque ?? ''}
             onChange={handleChange}
           />
         </div>
@@ -169,14 +184,13 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
           <input
             name="descripcion_contenido"
             placeholder="ej. 5 und por bolsa"
-            value={form.descripcion_contenido ?? ""}
+            value={form.descripcion_contenido ?? ''}
             onChange={handleChange}
           />
         </div>
 
-        
-        <div style={{ display: "flex", alignItems: "end" }}>
-          <label style={{ display: "flex", gap: 8, alignItems: "center", margin: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'end' }}>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: 0 }}>
             <input
               type="checkbox"
               name="requiere_congelacion_previa"
@@ -187,17 +201,17 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
           </label>
         </div>
 
-        <div style={{ display: "flex", alignItems: "end" }}>
-          <label style={{ display: "flex", gap: 8, alignItems: "center", margin: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'end' }}>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: 0 }}>
             <input type="checkbox" name="estado" checked={!!form.estado} onChange={handleChange} />
             Activo
           </label>
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
         <button className="btn-primary" disabled={!canSubmit || submitting}>
-          {submitting ? "Guardando..." : "Guardar"}
+          {submitting ? 'Guardando...' : 'Guardar'}
         </button>
       </div>
     </form>
@@ -210,56 +224,52 @@ export default function ProductosPT() {
   const [empaques, setEmpaques] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [toast, setToast] = useState({ type: "success", message: "" });
+  const [toast, setToast] = useState({ type: 'success', message: '' });
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Confirmar eliminar
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [toDelete, setToDelete] = useState(null);
 
-  // Confirmar activar/desactivar
   const [confirmToggleOpen, setConfirmToggleOpen] = useState(false);
-  const [toToggle, setToToggle] = useState(null); // { id, estado, nombre }
+  const [toToggle, setToToggle] = useState(null);
 
-  // Filtros
-  const [filters, setFilters] = useState({ q: "", estado: "all" });
+  const [filters, setFilters] = useState({ q: '', estado: 'all' });
 
   /* ---- API ---- */
   async function load() {
     setLoading(true);
     try {
       const [{ data: prods }, { data: emps }] = await Promise.all([
-        api.get("/productos"),
-        api.get("/empaques"),
+        api.get('/productos'),
+        api.get('/empaques'),
       ]);
       setItems(Array.isArray(prods) ? prods : []);
       setEmpaques(Array.isArray(emps) ? emps : []);
     } catch (e) {
       console.error(e);
-      setToast({ type: "error", message: "No se pudieron cargar los productos" });
+      setToast({ type: 'error', message: 'No se pudieron cargar los productos' });
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   async function createItem(payload) {
     setSubmitting(true);
     try {
-      await api.post("/productos", payload);
-      setToast({ type: "success", message: "Producto creado" });
+      await api.post('/productos', payload);
+      setToast({ type: 'success', message: 'Producto creado' });
       setModalOpen(false);
       setEditing(null);
       await load();
     } catch (e) {
-      setToast({
-        type: "error",
-        message: e?.response?.data?.message || "Error al crear",
-      });
+      setToast({ type: 'error', message: e?.response?.data?.message || 'Error al crear' });
     } finally {
       setSubmitting(false);
     }
@@ -269,15 +279,12 @@ export default function ProductosPT() {
     setSubmitting(true);
     try {
       await api.put(`/productos/${id}`, payload);
-      setToast({ type: "success", message: "Cambios guardados" });
+      setToast({ type: 'success', message: 'Cambios guardados' });
       setModalOpen(false);
       setEditing(null);
       await load();
     } catch (e) {
-      setToast({
-        type: "error",
-        message: e?.response?.data?.message || "Error al actualizar",
-      });
+      setToast({ type: 'error', message: e?.response?.data?.message || 'Error al actualizar' });
     } finally {
       setSubmitting(false);
     }
@@ -286,13 +293,10 @@ export default function ProductosPT() {
   async function toggleEstado(id, estadoActual) {
     try {
       await api.put(`/productos/${id}`, { estado: !estadoActual });
-      setToast({
-        type: "success",
-        message: !estadoActual ? "Activado" : "Desactivado",
-      });
+      setToast({ type: 'success', message: !estadoActual ? 'Activado' : 'Desactivado' });
       await load();
     } catch {
-      setToast({ type: "error", message: "Error al cambiar estado" });
+      setToast({ type: 'error', message: 'Error al cambiar estado' });
     } finally {
       setConfirmToggleOpen(false);
       setToToggle(null);
@@ -302,13 +306,10 @@ export default function ProductosPT() {
   async function removeItem(id) {
     try {
       await api.delete(`/productos/${id}`);
-      setToast({ type: "success", message: "Eliminado" });
+      setToast({ type: 'success', message: 'Eliminado' });
       await load();
     } catch (e) {
-      setToast({
-        type: "error",
-        message: e?.response?.data?.message || "No se pudo eliminar",
-      });
+      setToast({ type: 'error', message: e?.response?.data?.message || 'No se pudo eliminar' });
     } finally {
       setConfirmDeleteOpen(false);
       setToDelete(null);
@@ -318,13 +319,13 @@ export default function ProductosPT() {
   /* ---- Filtro en memoria ---- */
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
-    const estado = filters.estado; // all | active | inactive
+    const estado = filters.estado;
     return items.filter((it) => {
       const matchText = !q || it.nombre?.toLowerCase().includes(q);
       const matchEstado =
-        estado === "all" ||
-        (estado === "active" && it.estado) ||
-        (estado === "inactive" && !it.estado);
+        estado === 'all' ||
+        (estado === 'active' && it.estado) ||
+        (estado === 'inactive' && !it.estado);
       return matchText && matchEstado;
     });
   }, [items, filters]);
@@ -332,23 +333,27 @@ export default function ProductosPT() {
   /* ---- ORDEN: nombre A→Z ---- */
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) =>
-      String(a.nombre || "").localeCompare(String(b.nombre || ""), "es", { sensitivity: "base" })
+      String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es', { sensitivity: 'base' }),
     );
   }, [filtered]);
 
   /* ---- UI ---- */
   const header = (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div>
         <h2 style={{ margin: 0 }}>Productos terminados</h2>
         <div className="muted">
-          Marca <b>“Requiere congelación previa”</b> si este producto debe empezar en CONGELADO al producirse.
+          Marca <b>“Requiere congelación previa”</b> si este producto debe empezar en CONGELADO al
+          producirse.
         </div>
       </div>
       <button
         className="btn-primary"
-        onClick={() => { setEditing(null); setModalOpen(true); }}
-        style={{ width: "auto" }}
+        onClick={() => {
+          setEditing(null);
+          setModalOpen(true);
+        }}
+        style={{ width: 'auto' }}
       >
         + Nuevo producto
       </button>
@@ -387,7 +392,6 @@ export default function ProductosPT() {
                 <th>Empaque</th>
                 <th>Bolsas/und</th>
                 <th>Und/Empaque</th>
-                {/* 👇 NUEVO */}
                 <th>Req. congelación</th>
                 <th>Stock total</th>
                 <th>Estado</th>
@@ -406,7 +410,7 @@ export default function ProductosPT() {
 
               {!loading && sorted.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ padding: 14, textAlign: "center" }}>
+                  <td colSpan={9} style={{ padding: 14, textAlign: 'center' }}>
                     Sin resultados
                   </td>
                 </tr>
@@ -417,27 +421,26 @@ export default function ProductosPT() {
                   <tr key={it.id}>
                     <td>{it.id}</td>
                     <td>{it.nombre}</td>
-                    <td>{it.materias_primas_empaque?.nombre || "-"}</td>
-                    <td>{String(it.bolsas_por_unidad ?? "1")}</td>
-                    <td>{it.unidades_por_empaque ?? "-"}</td>
-                    {/* 👇 NUEVO */}
-                    <td>{it.requiere_congelacion_previa ? "Sí" : "No"}</td>
-                    <td>{it.stock_total ?? 0}</td>
+                    <td>{it.materias_primas_empaque?.nombre || '-'}</td>
+                    <td>{String(it.bolsas_por_unidad ?? '1')}</td>
+                    <td>{it.unidades_por_empaque ?? '-'}</td>
+                    <td>{it.requiere_congelacion_previa ? 'Sí' : 'No'}</td>
+                    <td>{formatStockTotal(it)}</td>
                     <td>
                       <span
                         className="badge"
                         style={{
-                          background: it.estado ? "#f6ffed" : "#fff2f0",
-                          border: "1px solid",
-                          borderColor: it.estado ? "#b7eb8f" : "#ffccc7",
-                          color: it.estado ? "#237804" : "#a8071a",
+                          background: it.estado ? '#f6ffed' : '#fff2f0',
+                          border: '1px solid',
+                          borderColor: it.estado ? '#b7eb8f' : '#ffccc7',
+                          color: it.estado ? '#237804' : '#a8071a',
                         }}
                       >
-                        {it.estado ? "Activa" : "Inactiva"}
+                        {it.estado ? 'Activa' : 'Inactiva'}
                       </span>
                     </td>
                     <td>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <button
                           className="btn-outline"
                           onClick={() => {
@@ -445,16 +448,15 @@ export default function ProductosPT() {
                               id: it.id,
                               nombre: it.nombre,
                               estado: !!it.estado,
-                              empaque_mp_id: it.empaque_mp_id ?? "",
-                              bolsas_por_unidad: String(it.bolsas_por_unidad ?? "1"),
-                              unidades_por_empaque: it.unidades_por_empaque ?? "",
-                              descripcion_contenido: it.descripcion_contenido ?? "",
-                              // 👇 NUEVO
+                              empaque_mp_id: it.empaque_mp_id ?? '',
+                              bolsas_por_unidad: String(it.bolsas_por_unidad ?? '1'),
+                              unidades_por_empaque: it.unidades_por_empaque ?? '',
+                              descripcion_contenido: it.descripcion_contenido ?? '',
                               requiere_congelacion_previa: !!it.requiere_congelacion_previa,
                             });
                             setModalOpen(true);
                           }}
-                          style={{ width: "auto" }}
+                          style={{ width: 'auto' }}
                         >
                           ✏️ Editar
                         </button>
@@ -465,9 +467,9 @@ export default function ProductosPT() {
                             setToToggle({ id: it.id, estado: it.estado, nombre: it.nombre });
                             setConfirmToggleOpen(true);
                           }}
-                          style={{ width: "auto" }}
+                          style={{ width: 'auto' }}
                         >
-                          {it.estado ? "Desactivar" : "Activar"}
+                          {it.estado ? 'Desactivar' : 'Activar'}
                         </button>
 
                         <button
@@ -476,7 +478,7 @@ export default function ProductosPT() {
                             setToDelete(it);
                             setConfirmDeleteOpen(true);
                           }}
-                          style={{ width: "auto" }}
+                          style={{ width: 'auto' }}
                         >
                           🗑️ Eliminar
                         </button>
@@ -492,18 +494,19 @@ export default function ProductosPT() {
       {/* Modal Crear / Editar */}
       <Modal
         open={modalOpen}
-        title={editing ? "Editar producto" : "Nuevo producto"}
+        title={editing ? 'Editar producto' : 'Nuevo producto'}
         onClose={() => {
-          if (!submitting) { setModalOpen(false); setEditing(null); }
+          if (!submitting) {
+            setModalOpen(false);
+            setEditing(null);
+          }
         }}
       >
         <ProductoForm
           initial={editing || emptyForm}
           empaques={empaques}
           submitting={submitting}
-          onSubmit={(payload) =>
-            editing ? updateItem(editing.id, payload) : createItem(payload)
-          }
+          onSubmit={(payload) => (editing ? updateItem(editing.id, payload) : createItem(payload))}
         />
       </Modal>
 
@@ -511,11 +514,7 @@ export default function ProductosPT() {
       <Confirm
         open={confirmDeleteOpen}
         title="Eliminar producto"
-        message={
-          toDelete
-            ? `¿Seguro que deseas eliminar "${toDelete.nombre}"?`
-            : ""
-        }
+        message={toDelete ? `¿Seguro que deseas eliminar "${toDelete.nombre}"?` : ''}
         onCancel={() => {
           setConfirmDeleteOpen(false);
           setToDelete(null);
@@ -526,11 +525,11 @@ export default function ProductosPT() {
       {/* Confirmación activar/desactivar */}
       <Confirm
         open={confirmToggleOpen}
-        title={toToggle?.estado ? "Desactivar producto" : "Activar producto"}
+        title={toToggle?.estado ? 'Desactivar producto' : 'Activar producto'}
         message={
           toToggle
-            ? `¿Deseas ${toToggle.estado ? "desactivar" : "activar"} "${toToggle.nombre}"?`
-            : ""
+            ? `¿Deseas ${toToggle.estado ? 'desactivar' : 'activar'} "${toToggle.nombre}"?`
+            : ''
         }
         onCancel={() => {
           setConfirmToggleOpen(false);
@@ -543,7 +542,7 @@ export default function ProductosPT() {
       <Toast
         type={toast.type}
         message={toast.message}
-        onClose={() => setToast({ ...toast, message: "" })}
+        onClose={() => setToast({ ...toast, message: '' })}
       />
     </div>
   );

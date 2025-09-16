@@ -1,18 +1,23 @@
 // src/pages/Home.jsx
-import { useEffect, useMemo, useState } from "react";
-import { useAuth } from "../auth/AuthContext";
-import api from "../api/client";
+import { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '../auth/AuthContext';
+import api from '../api/client';
 
 /* Helpers */
-const startOfDay = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
-const isExpired = (d) => d ? startOfDay(d) < startOfDay(new Date()) : false;
+const startOfDay = (d) => {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+};
+const isExpired = (d) => (d ? startOfDay(d) < startOfDay(new Date()) : false);
 const expiringSoon = (d, days = 15) => {
   if (!d) return false;
-  const f = startOfDay(d), t = startOfDay(new Date());
-  const diff = (f - t) / (1000*60*60*24);
+  const f = startOfDay(d),
+    t = startOfDay(new Date());
+  const diff = (f - t) / (1000 * 60 * 60 * 24);
   return diff >= 0 && diff <= days;
 };
-const isAdminRole = (r) => String(r || "").toUpperCase() === "ADMIN";
+const isAdminRole = (r) => String(r || '').toUpperCase() === 'ADMIN';
 
 export default function Home() {
   const { user } = useAuth();
@@ -20,7 +25,7 @@ export default function Home() {
 
   // Estados solo usados por Admin
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
+  const [err, setErr] = useState('');
   const [materias, setMaterias] = useState([]);
   const [lotes, setLotes] = useState([]);
   const [proveedores, setProveedores] = useState([]);
@@ -28,45 +33,60 @@ export default function Home() {
 
   async function load() {
     setLoading(true);
-    setErr("");
+    setErr('');
     try {
-      const [M,L,P,U] = await Promise.all([
-        api.get("/materias-primas"),
-        api.get("/lotes-materia-prima"),
-        api.get("/proveedores"),
-        api.get("/usuarios"),
+      const [M, L, P, U] = await Promise.all([
+        api.get('/materias-primas'),
+        api.get('/lotes-materia-prima'),
+        api.get('/proveedores'),
+        api.get('/usuarios'),
       ]);
       setMaterias(Array.isArray(M.data) ? M.data : []);
       setLotes(Array.isArray(L.data) ? L.data : []);
       setProveedores(Array.isArray(P.data) ? P.data : []);
       setUsuarios(Array.isArray(U.data) ? U.data : []);
     } catch (e) {
-      setErr(e?.response?.data?.message || "No se pudo cargar el resumen");
+      setErr(e?.response?.data?.message || 'No se pudo cargar el resumen');
     } finally {
       setLoading(false);
     }
   }
 
   // Solo Admin carga datos
-  useEffect(() => { if (isAdmin) load(); }, [isAdmin]);
+  useEffect(() => {
+    if (isAdmin) load();
+  }, [isAdmin]);
 
   /* KPIs (solo Admin) */
   const kpis = useMemo(() => {
     const mpTotal = materias.length;
-    const mpActivas = materias.filter(m => m.estado).length;
-    const lotesActivos = lotes.filter(l => l.estado && !isExpired(l.fecha_vencimiento)).length;
-    const lotesVencidos = lotes.filter(l => isExpired(l.fecha_vencimiento)).length;
-    const lotesPronto = lotes.filter(l => expiringSoon(l.fecha_vencimiento, 15)).length;
-    const provActivos = proveedores.filter(p => p.estado).length;
-    const usersAdmin = usuarios.filter(u => isAdminRole(u.rol)).length;
-    const usersProd  = usuarios.filter(u => !isAdminRole(u.rol)).length;
-    return { mpTotal, mpActivas, lotesActivos, lotesVencidos, lotesPronto, provActivos, usersAdmin, usersProd };
+    const mpActivas = materias.filter((m) => m.estado).length;
+    const lotesActivos = lotes.filter((l) => l.estado && !isExpired(l.fecha_vencimiento)).length;
+    const lotesVencidos = lotes.filter((l) => isExpired(l.fecha_vencimiento)).length;
+    const lotesPronto = lotes.filter((l) => expiringSoon(l.fecha_vencimiento, 15)).length;
+    const provActivos = proveedores.filter((p) => p.estado).length;
+    const usersAdmin = usuarios.filter((u) => isAdminRole(u.rol)).length;
+    const usersProd = usuarios.filter((u) => !isAdminRole(u.rol)).length;
+    return {
+      mpTotal,
+      mpActivas,
+      lotesActivos,
+      lotesVencidos,
+      lotesPronto,
+      provActivos,
+      usersAdmin,
+      usersProd,
+    };
   }, [materias, lotes, proveedores, usuarios]);
 
   const proximosVencimientos = useMemo(() => {
     return [...lotes]
-      .filter(l => expiringSoon(l.fecha_vencimiento, 15))
-      .sort((a,b) => new Date(a.fecha_vencimiento||"9999-12-31") - new Date(b.fecha_vencimiento||"9999-12-31"))
+      .filter((l) => expiringSoon(l.fecha_vencimiento, 15))
+      .sort(
+        (a, b) =>
+          new Date(a.fecha_vencimiento || '9999-12-31') -
+          new Date(b.fecha_vencimiento || '9999-12-31'),
+      )
       .slice(0, 6);
   }, [lotes]);
 
@@ -79,19 +99,30 @@ export default function Home() {
         {!isAdmin && (
           <>
             <p className="muted" style={{ marginTop: -6 }}>
-              Aquí puedes trabajar con materias primas, lotes por proveedor (FIFO) y apoyar la producción según las recetas definidas.
+              Aquí puedes trabajar con materias primas, lotes por proveedor (FIFO) y apoyar la
+              producción según las recetas definidas.
             </p>
 
             <div className="card" style={{ marginTop: 12 }}>
               <h3 style={{ marginTop: 0 }}>¿Qué puedes hacer aquí?</h3>
               <ul style={{ marginTop: 6 }}>
-                <li>Registrar entradas de <strong>lotes</strong> con fechas de ingreso y vencimiento.</li>
-                <li>Actualizar <strong>estado</strong> de materias primas y lotes según disponibilidad real.</li>
-                <li>Reportar <strong>consumos</strong> para producción siguiendo la lógica FIFO.</li>
-                <li>Notificar posibles <strong>vencimientos</strong> detectados en bodega.</li>
+                <li>
+                  Registrar entradas de <strong>lotes</strong> con fechas de ingreso y vencimiento.
+                </li>
+                <li>
+                  Actualizar <strong>estado</strong> de materias primas y lotes según disponibilidad
+                  real.
+                </li>
+                <li>
+                  Reportar <strong>consumos</strong> para producción siguiendo la lógica FIFO.
+                </li>
+                <li>
+                  Notificar posibles <strong>vencimientos</strong> detectados en bodega.
+                </li>
               </ul>
               <p className="muted" style={{ marginTop: 6 }}>
-                Nota: el acceso a configuraciones y reportes detallados está reservado para el rol Admin.
+                Nota: el acceso a configuraciones y reportes detallados está reservado para el rol
+                Admin.
               </p>
             </div>
           </>
@@ -102,10 +133,15 @@ export default function Home() {
           <>
             <p className="muted" style={{ marginTop: -6 }}>
               Controla materias primas, lotes por proveedor con lógica FIFO, producción con recetas
-              y stock de producto terminado. También encontrarás trazabilidad y auditoría (solo Admin).
+              y stock de producto terminado. También encontrarás trazabilidad y auditoría (solo
+              Admin).
             </p>
 
-            {err && <div className="alert" style={{ marginTop: 10 }}>{err}</div>}
+            {err && (
+              <div className="alert" style={{ marginTop: 10 }}>
+                {err}
+              </div>
+            )}
 
             <div className="row" style={{ marginTop: 14 }}>
               <div className="card">
@@ -117,7 +153,9 @@ export default function Home() {
               <div className="card">
                 <div className="muted">Lotes</div>
                 <div style={{ fontSize: 28, fontWeight: 800 }}>{kpis.lotesActivos}</div>
-                <div className="muted">Vencidos: {kpis.lotesVencidos} · Por vencer (15d): {kpis.lotesPronto}</div>
+                <div className="muted">
+                  Vencidos: {kpis.lotesVencidos} · Por vencer (15d): {kpis.lotesPronto}
+                </div>
               </div>
 
               <div className="card">
@@ -128,17 +166,28 @@ export default function Home() {
               <div className="card">
                 <div className="muted">Usuarios</div>
                 <div style={{ fontSize: 28, fontWeight: 800 }}>{usuarios.length}</div>
-                <div className="muted">Admin: {kpis.usersAdmin} · Producción: {kpis.usersProd}</div>
+                <div className="muted">
+                  Admin: {kpis.usersAdmin} · Producción: {kpis.usersProd}
+                </div>
               </div>
             </div>
 
             <div className="card" style={{ marginTop: 14 }}>
               <h3 style={{ marginTop: 0 }}>¿Qué puedes hacer aquí?</h3>
               <ul style={{ marginTop: 6 }}>
-                <li>Definir y mantener <strong>materias primas</strong> (unidad, tipo y estado).</li>
-                <li>Registrar <strong>lotes por proveedor</strong>, con fecha de ingreso y vencimiento.</li>
-                <li>Monitorear <strong>vencimientos</strong> y <strong>stock</strong> para la producción.</li>
-                <li>Gestionar <strong>usuarios</strong> y <strong>roles</strong> (Admin / Producción).</li>
+                <li>
+                  Definir y mantener <strong>materias primas</strong> (unidad, tipo y estado).
+                </li>
+                <li>
+                  Registrar <strong>lotes por proveedor</strong>, con fecha de ingreso y
+                  vencimiento.
+                </li>
+                <li>
+                  Monitorear <strong>vencimientos</strong> y <strong>stock</strong>
+                </li>
+                <li>
+                  Gestionar <strong>usuarios</strong> y <strong>roles</strong> (Admin / Producción).
+                </li>
                 <li>Auditar cambios críticos (ediciones y eliminaciones, reservado para Admin).</li>
               </ul>
               <p className="muted" style={{ marginTop: 6 }}>
@@ -163,12 +212,16 @@ export default function Home() {
                     </tr>
                   </thead>
                   <tbody>
-                    {proximosVencimientos.map(l => (
+                    {proximosVencimientos.map((l) => (
                       <tr key={l.id}>
                         <td>{l.id}</td>
-                        <td>{l.materias_primas?.nombre || "-"}</td>
-                        <td>{l.proveedores?.nombre || "-"}</td>
-                        <td>{l.fecha_vencimiento ? new Date(l.fecha_vencimiento).toLocaleDateString() : "-"}</td>
+                        <td>{l.materias_primas?.nombre || '-'}</td>
+                        <td>{l.proveedores?.nombre || '-'}</td>
+                        <td>
+                          {l.fecha_vencimiento
+                            ? new Date(l.fecha_vencimiento).toLocaleDateString()
+                            : '-'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -181,5 +234,3 @@ export default function Home() {
     </div>
   );
 }
-
-

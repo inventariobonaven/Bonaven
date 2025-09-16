@@ -1,7 +1,10 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+// src/components/Layout.jsx
+import { useEffect } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import './Layout.css';
 
+/* ====== Menú por rol ====== */
 const NAV_ADMIN = [
   { to: '/', label: 'Inicio', icon: '🏠', exact: true },
   { to: '/proveedores', label: 'Proveedores', icon: '🧾' },
@@ -28,25 +31,39 @@ const NAV_PROD = [
   { to: '/cultivos', label: 'Masa Madre', icon: '🧫' },
 ];
 
+/* Título según ruta (prefiere coincidencia más larga) */
 function titleFromPath(pathname, nav) {
   if (pathname === '/') return 'Inicio';
-  const hit = nav.find((n) => n.to !== '/' && pathname.startsWith(n.to));
+  const hit = [...nav]
+    .sort((a, b) => (b.to?.length || 0) - (a.to?.length || 0))
+    .find((n) => n.to !== '/' && pathname.startsWith(n.to));
   return hit ? hit.label : 'Panel';
 }
 
 export default function Layout() {
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
 
   const role = String(user?.rol || '').toUpperCase();
   const isAdmin = role === 'ADMIN';
   const NAV = isAdmin ? NAV_ADMIN : NAV_PROD;
+
+  // Si PRODUCCIÓN navega a una ruta fuera de su menú, regresa al Inicio
+  useEffect(() => {
+    if (!isAdmin) {
+      const allowed = NAV_PROD.map((n) => n.to);
+      const ok = allowed.some((p) => pathname === p || (p !== '/' && pathname.startsWith(p)));
+      if (!ok) navigate('/', { replace: true });
+    }
+  }, [isAdmin, pathname, navigate]);
 
   return (
     <div className="app-shell">
       {/* Sidebar */}
       <aside className="sidebar">
         <h3 className="brand">Inventario y Producción</h3>
+
         <nav>
           {NAV.map((item) => (
             <NavLink

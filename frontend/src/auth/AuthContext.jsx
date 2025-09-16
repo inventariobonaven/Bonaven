@@ -1,88 +1,91 @@
-import { createContext, useContext, useEffect, useState } from 'react';
-import axios from 'axios';
+// src/auth/AuthContext.jsx
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import api from '../api/client';
 
-const AuthCtx = createContext(null);
+const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [auth, setAuth] = useState(null); // { token, user, permissions }
+  // auth = { token, user, permissions }
+  const [auth, setAuth] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Restaurar sesión una sola vez
   useEffect(() => {
-    const raw = localStorage.getItem('auth');
-    if (raw) {
-      try {
+    try {
+      const raw = localStorage.getItem('auth');
+      if (raw) {
         const parsed = JSON.parse(raw);
-        setAuth(parsed);
-
-        if (parsed?.token) {
-          api.defaults.headers.common.Authorization = `Bearer ${parsed.token}`;
-          axios.defaults.headers.common.Authorization = `Bearer ${parsed.token}`;
+        if (parsed && parsed.token && parsed.user) {
+          setAuth({
+            token: parsed.token,
+            user: parsed.user,
+            permissions: Array.isArray(parsed.permissions) ? parsed.permissions : [],
+          });
+        } else {
+          // Limpia formatos viejos o corruptos
+          localStorage.removeItem('auth');
+          localStorage.removeItem('token');
         }
-      } catch {
-        localStorage.removeItem('auth');
       }
+    } catch {
+      localStorage.removeItem('auth');
+      localStorage.removeItem('token');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
-  const login = async (usuario, contrasena) => {
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-    const res = await axios.post(`${baseURL}/auth/login`, { usuario, contrasena });
+  // ------ acciones ------
+  async function login(usuario, contrasena) {
+    // Usa SIEMPRE la instancia api (ya tiene baseURL y headers)
+    const { data } = await api.post('/auth/login', { usuario, contrasena });
 
-    const data = {
-      token: res.data.token,
-      user: res.data.user,
-      permissions: res.data.permissions || [],
+    const next = {
+      token: data?.token || '',
+      user: data?.user || null,
+      permissions: Array.isArray(data?.permissions) ? data.permissions : [],
     };
 
-    localStorage.setItem('auth', JSON.stringify(data));
-    localStorage.setItem('token', res.data.token);
+    // Persistir
+    localStorage.setItem('auth', JSON.stringify(next));
+    if (next.token) localStorage.setItem('token', next.token);
 
-    api.defaults.headers.common.Authorization = `Bearer ${res.data.token}`;
-    axios.defaults.headers.common.Authorization = `Bearer ${res.data.token}`;
+    setAuth(next);
+    return next.user;
+  }
 
-    setAuth(data);
-    return data;
-  };
+  function logout() {
+    // Limpia storage primero
+    try {
+      localStorage.removeItem('auth');
+      localStorage.removeItem('token');
+    } finally {
+      setAuth(null);
+      // Redirecciona fuera de zonas protegidas
+      if (typeof window !== 'undefined') {
+        window.location.replace('/login');
+      }
+    }
+  }
 
-  const logout = () => {
-    localStorage.removeItem('auth');
-    localStorage.removeItem('token');
-    setAuth(null);
-    delete api.defaults.headers.common.Authorization;
-    delete axios.defaults.headers.common.Authorization;
-    window.location.href = '/login';
-  };
-
-  // ---------- helpers de rol/permisos ----------
+  // ------ helpers de rol/permisos ------
   const role = String(auth?.user?.rol || '').toUpperCase(); // 'ADMIN' | 'PRODUCCION' | ''
   const isAdmin = role === 'ADMIN';
+  const permissions = Array.isArray(auth?.permissions) ? auth.permissions : [];
+  const has = (...keys) => keys.every((k) => permissions.includes(k));
+  const user = auth?.user || null;
+  const token = auth?.token || null;
 
-  const perms = Array.isArray(auth?.permissions) ? auth.permissions : [];
-  const has = (...keys) => keys.every(k => perms.includes(k));
-
-  return (
-    <AuthCtx.Provider
-      value={{
-        auth,
-        user: auth?.user,
-        token: auth?.token,
-        permissions: perms,
-        isAdmin,
-        has,
-        login,
-        logout,
-        loading,
-      }}
-    >
-      {children}
-    </AuthCtx.Provider>
+  const value = useMemo(
+    () => ({ auth, user, token, permissions, isAdmin, has, login, logout, loading }),
+    [auth, user, token, permissions, isAdmin, loading],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  return useContext(AuthCtx);
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within <AuthProvider>');
+  return ctx;
 }
-
-
