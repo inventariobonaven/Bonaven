@@ -1,65 +1,73 @@
-// backend/src/routes/materiasPrimas.routes.js
 const express = require('express');
 const router = express.Router();
 
-const materiasPrimasController = require('../controllers/materiasPrimas.controller');
-const { authenticateToken, authorizeRoles } = require('../middlewares/auth');
+const ctrl = require('../controllers/materiasPrimas.controller');
+const { authenticateToken, authorizeRoles, authorizePermissions } = require('../middlewares/auth');
 
 /**
- * Materias Primas — rutas con permisos por rol.
- * - ADMIN: CRUD completo
- * - PRODUCCION: solo lectura (listar/obtener)
- *
- * Nota: el middleware auth normaliza el rol (sin acentos, mayúsculas),
- * así que el valor esperado en BD es "PRODUCCION" o "ADMIN".
+ * Helper: permite si el usuario cumple alguno de:
+ *  - rol dentro de la lista permitida
+ *  - permisos finos dentro de la lista requerida
  */
+function allowRolesOrPerms(roles = [], perms = []) {
+  // Reutiliza los middlewares existentes
+  const byRole = authorizeRoles(...roles);
+  const byPerms = authorizePermissions(...perms);
+
+  return (req, res, next) => {
+    // intentamos por rol
+    byRole(req, res, (err) => {
+      if (!err) return next(); // pasó por rol
+
+      // si falló por rol, probamos por permisos
+      byPerms(req, res, (err2) => {
+        if (!err2) return next(); // pasó por permisos
+
+        // si no pasó, devolvemos 403 con info mínima (útil para debugging)
+        return res.status(403).json({
+          message: 'No autorizado (rol/permiso)',
+          // comenta estas dos líneas si no quieres pistas en producción:
+          // role: req.user?.rol,
+          // permissions: req.permissions || [],
+        });
+      });
+    });
+  };
+}
+
+/* ================== RUTAS ================== */
 
 // Crear (solo ADMIN)
-router.post(
-  '/',
-  authenticateToken,
-  authorizeRoles('ADMIN'),
-  materiasPrimasController.crearMateriaPrima,
-);
+router.post('/', authenticateToken, authorizeRoles('ADMIN'), ctrl.crearMateriaPrima);
 
-// Listar (ADMIN y PRODUCCION)
+// Listar (ADMIN o PRODUCCION o permiso PRODUCCION_VIEW/MATERIAS_MANAGE)
 router.get(
   '/',
   authenticateToken,
-  authorizeRoles('ADMIN', 'PRODUCCION'),
-  materiasPrimasController.listarMateriasPrimas,
+  allowRolesOrPerms(['ADMIN', 'PRODUCCION'], ['PRODUCCION_VIEW', 'MATERIAS_MANAGE']),
+  ctrl.listarMateriasPrimas,
 );
 
-// Obtener por id (ADMIN y PRODUCCION)
+// Obtener por id (ADMIN o PRODUCCION o permiso PRODUCCION_VIEW/MATERIAS_MANAGE)
 router.get(
   '/:id',
   authenticateToken,
-  authorizeRoles('ADMIN', 'PRODUCCION'),
-  materiasPrimasController.obtenerMateriaPrima,
+  allowRolesOrPerms(['ADMIN', 'PRODUCCION'], ['PRODUCCION_VIEW', 'MATERIAS_MANAGE']),
+  ctrl.obtenerMateriaPrima,
 );
 
 // Actualizar (solo ADMIN)
-router.put(
-  '/:id',
-  authenticateToken,
-  authorizeRoles('ADMIN'),
-  materiasPrimasController.actualizarMateriaPrima,
-);
+router.put('/:id', authenticateToken, authorizeRoles('ADMIN'), ctrl.actualizarMateriaPrima);
 
 // Cambiar estado (solo ADMIN)
 router.patch(
   '/:id/estado',
   authenticateToken,
   authorizeRoles('ADMIN'),
-  materiasPrimasController.cambiarEstadoMateriaPrima,
+  ctrl.cambiarEstadoMateriaPrima,
 );
 
 // Eliminar (solo ADMIN)
-router.delete(
-  '/:id',
-  authenticateToken,
-  authorizeRoles('ADMIN'),
-  materiasPrimasController.eliminarMateriaPrima,
-);
+router.delete('/:id', authenticateToken, authorizeRoles('ADMIN'), ctrl.eliminarMateriaPrima);
 
 module.exports = router;
