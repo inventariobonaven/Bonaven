@@ -11,7 +11,7 @@ function normalizeRole(v) {
     .trim();
 }
 
-/** Permisos por rol (ajústalo si necesitas más finos) */
+/** Permisos por rol */
 function getPermissionsByRole(role) {
   const R = normalizeRole(role);
   const map = {
@@ -31,6 +31,9 @@ function getPermissionsByRole(role) {
   };
   return map[R] || [];
 }
+
+/** 🔔 Banner de versión */
+console.log('[AUTH MW] v=mp-read-authenticated-v3');
 
 /** Autenticación: valida JWT y carga req.user + req.permissions */
 async function authenticateToken(req, res, next) {
@@ -71,7 +74,7 @@ async function authenticateToken(req, res, next) {
     req.user = { ...user, rolNorm };
     req.permissions = permissions;
 
-    // Log útil en prod (apaga si quieres)
+    // Log de quién llega
     console.log(
       `[AUTH] uid=${user.id} rol="${user.rol}" → rolNorm=${rolNorm} perms=[${permissions.join(',')}]`,
     );

@@ -4,6 +4,9 @@ const router = express.Router();
 const ctrl = require('../controllers/materiasPrimas.controller');
 const { authenticateToken } = require('../middlewares/auth');
 
+/** 🔔 Banner de versión y “ping” */
+console.log('[MP ROUTES] v=mp-read-authenticated-v3');
+
 /** Log rápido para Render */
 function logWho(req, _res, next) {
   const r = String(req?.user?.rol || '');
@@ -14,6 +17,11 @@ function logWho(req, _res, next) {
   );
   next();
 }
+
+/** Ruta de diagnóstico (ver que este archivo esté activo) */
+router.get('/__ping', (_req, res) => {
+  res.json({ ok: true, route: 'materiasPrimas', version: 'mp-read-authenticated-v3' });
+});
 
 /* ===== CRUD ===== */
 
