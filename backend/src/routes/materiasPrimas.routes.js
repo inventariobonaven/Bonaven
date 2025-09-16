@@ -1,58 +1,88 @@
-// backend/src/routes/materiasPrimas.routes.js
 const express = require('express');
 const router = express.Router();
 
 const ctrl = require('../controllers/materiasPrimas.controller');
 const { authenticateToken } = require('../middlewares/auth');
 
-/* Normaliza rol: sin acentos, mayúsculas */
-const norm = (v) =>
-  String(v || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase()
-    .trim();
-
-/* Sets de autorización */
-const READ_ROLES = new Set(['ADMIN', 'PRODUCCION']);
-const READ_PERMS = new Set(['PRODUCCION_VIEW', 'MATERIAS_MANAGE']);
-
-/* --- Guards --- */
-function allowAdmin(req, res, next) {
-  if (!req.user) return res.status(401).json({ message: 'No autenticado' });
-  if (norm(req.user.rol) === 'ADMIN') return next();
-  return res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
-}
-
-function allowRead(req, res, next) {
-  if (!req.user) return res.status(401).json({ message: 'No autenticado' });
-
-  const roleOk = READ_ROLES.has(norm(req.user.rol));
-  const perms = Array.isArray(req.permissions) ? req.permissions : [];
-  const permOk = perms.some((p) => READ_PERMS.has(p));
-
-  if (roleOk || permOk) return next();
-  return res.status(403).json({ message: 'No autorizado (rol/permiso)' });
+// Helper solo para loguear qué ve el backend
+function logWho(req, _res, next) {
+  const r = String(req?.user?.rol || '');
+  const perms = Array.isArray(req?.permissions) ? req.permissions.join(',') : '';
+  console.log(`[MP GUARD] user=${req?.user?.id} rol="${r}" perms=[${perms}]`);
+  next();
 }
 
 /* ===== CRUD ===== */
 
-// Crear (solo ADMIN)
-router.post('/', authenticateToken, allowAdmin, ctrl.crearMateriaPrima);
+// Crear (solo ADMIN) — lo dejamos igual
+router.post(
+  '/',
+  authenticateToken,
+  (req, res, next) => {
+    if (
+      String(req.user?.rol || '')
+        .toUpperCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') !== 'ADMIN'
+    ) {
+      return res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
+    }
+    return next();
+  },
+  ctrl.crearMateriaPrima,
+);
 
-// Listar (ADMIN o PRODUCCION, o permisos finos)
-router.get('/', authenticateToken, allowRead, ctrl.listarMateriasPrimas);
+// 🔓 Hotfix: Listar y Obtener -> solo autenticado (y log de rol/permisos)
+router.get('/', authenticateToken, logWho, ctrl.listarMateriasPrimas);
+router.get('/:id', authenticateToken, logWho, ctrl.obtenerMateriaPrima);
 
-// Obtener (ADMIN o PRODUCCION, o permisos finos)
-router.get('/:id', authenticateToken, allowRead, ctrl.obtenerMateriaPrima);
+// Actualizar / estado / eliminar (solo ADMIN)
+router.put(
+  '/:id',
+  authenticateToken,
+  (req, res, next) => {
+    const isAdmin =
+      String(req.user?.rol || '')
+        .toUpperCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') === 'ADMIN';
+    return isAdmin
+      ? next()
+      : res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
+  },
+  ctrl.actualizarMateriaPrima,
+);
 
-// Actualizar (solo ADMIN)
-router.put('/:id', authenticateToken, allowAdmin, ctrl.actualizarMateriaPrima);
+router.patch(
+  '/:id/estado',
+  authenticateToken,
+  (req, res, next) => {
+    const isAdmin =
+      String(req.user?.rol || '')
+        .toUpperCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') === 'ADMIN';
+    return isAdmin
+      ? next()
+      : res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
+  },
+  ctrl.cambiarEstadoMateriaPrima,
+);
 
-// Cambiar estado (solo ADMIN)
-router.patch('/:id/estado', authenticateToken, allowAdmin, ctrl.cambiarEstadoMateriaPrima);
-
-// Eliminar (solo ADMIN)
-router.delete('/:id', authenticateToken, allowAdmin, ctrl.eliminarMateriaPrima);
+router.delete(
+  '/:id',
+  authenticateToken,
+  (req, res, next) => {
+    const isAdmin =
+      String(req.user?.rol || '')
+        .toUpperCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') === 'ADMIN';
+    return isAdmin
+      ? next()
+      : res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
+  },
+  ctrl.eliminarMateriaPrima,
+);
 
 module.exports = router;
