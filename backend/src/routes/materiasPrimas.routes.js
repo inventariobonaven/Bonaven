@@ -1,8 +1,18 @@
 // backend/src/routes/materiasPrimas.routes.js
 const express = require('express');
 const router = express.Router();
+
 const materiasPrimasController = require('../controllers/materiasPrimas.controller');
 const { authenticateToken, authorizeRoles } = require('../middlewares/auth');
+
+/**
+ * Materias Primas — rutas con permisos por rol.
+ * - ADMIN: CRUD completo
+ * - PRODUCCION: solo lectura (listar/obtener)
+ *
+ * Nota: el middleware auth normaliza el rol (sin acentos, mayúsculas),
+ * así que el valor esperado en BD es "PRODUCCION" o "ADMIN".
+ */
 
 // Crear (solo ADMIN)
 router.post(
@@ -12,7 +22,7 @@ router.post(
   materiasPrimasController.crearMateriaPrima,
 );
 
-// LISTAR y OBTENER (ADMIN **y** PRODUCCION)  ← ← AQUÍ ESTÁ LA CLAVE
+// Listar (ADMIN y PRODUCCION)
 router.get(
   '/',
   authenticateToken,
@@ -20,6 +30,7 @@ router.get(
   materiasPrimasController.listarMateriasPrimas,
 );
 
+// Obtener por id (ADMIN y PRODUCCION)
 router.get(
   '/:id',
   authenticateToken,
@@ -27,7 +38,7 @@ router.get(
   materiasPrimasController.obtenerMateriaPrima,
 );
 
-// Actualizar / estado / eliminar (solo ADMIN)
+// Actualizar (solo ADMIN)
 router.put(
   '/:id',
   authenticateToken,
@@ -35,6 +46,7 @@ router.put(
   materiasPrimasController.actualizarMateriaPrima,
 );
 
+// Cambiar estado (solo ADMIN)
 router.patch(
   '/:id/estado',
   authenticateToken,
@@ -42,6 +54,7 @@ router.patch(
   materiasPrimasController.cambiarEstadoMateriaPrima,
 );
 
+// Eliminar (solo ADMIN)
 router.delete(
   '/:id',
   authenticateToken,
