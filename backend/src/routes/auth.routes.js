@@ -1,26 +1,29 @@
-// src/routes/auth.routes.js
 const express = require('express');
 const router = express.Router();
+
 const authCtrl = require('../controllers/auth.controller');
-const { authenticateToken } = require('../middlewares/auth');
+const { authenticateToken, getPermissionsByRole } = require('../middlewares/auth');
 
 router.post('/login', authCtrl.login);
 
-// Handler reutilizable para /me y /whoami
 function meHandler(req, res) {
-  // authenticateToken ya cargó req.user (con rolNorm) y req.permissions
-  const safeUser = { ...req.user };
-  delete safeUser.contrasena; // nunca exponer
+  const user = req.user || {};
+  const safeUser = {
+    id: user.id ?? null,
+    usuario: user.usuario ?? null,
+    nombre: user.nombre ?? null,
+    rol: user.rol ?? null,
+    estado: user.estado ?? null,
+    rolNorm: user.rolNorm ?? (user.rol ? String(user.rol).toUpperCase() : null),
+  };
+  const permissions =
+    Array.isArray(req.permissions) && req.permissions.length
+      ? req.permissions
+      : getPermissionsByRole(safeUser.rol);
 
-  res.json({
-    user: safeUser,
-    role: safeUser?.rol || null,
-    roleNorm: safeUser?.rolNorm || null,
-    permissions: req.permissions || [],
-  });
+  res.json({ user: safeUser, permissions });
 }
 
-// Quién soy (útil para depurar roles/permisos en producción)
 router.get('/me', authenticateToken, meHandler);
 router.get('/whoami', authenticateToken, meHandler);
 

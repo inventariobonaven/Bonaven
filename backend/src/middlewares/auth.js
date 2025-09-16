@@ -1,18 +1,17 @@
-// backend/src/middlewares/auth.js
 const jwt = require('jsonwebtoken');
 const prisma = require('../database/prismaClient');
 require('dotenv').config();
 
-/** Normaliza rol: mayúsculas + sin acentos */
+/** Normaliza: mayúsculas y sin acentos */
 function normalizeRole(v) {
   return String(v || '')
-    .normalize('NFD') // separa acentos
-    .replace(/[\u0300-\u036f]/g, '') // quita marcas diacríticas
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase()
     .trim();
 }
 
-/** Mapeo de permisos por rol (claves normalizadas) */
+/** Permisos por rol (ajústalo si necesitas más finos) */
 function getPermissionsByRole(role) {
   const R = normalizeRole(role);
   const map = {
@@ -25,9 +24,9 @@ function getPermissionsByRole(role) {
       'VENTAS_MANAGE',
     ],
     PRODUCCION: [
+      'PRODUCCION_VIEW',
       'PRODUCCION_CALCULAR',
       'PRODUCCION_REGISTRAR_PRODUCTO_TERMINADO',
-      'PRODUCCION_VIEW',
     ],
   };
   return map[R] || [];
@@ -40,7 +39,6 @@ async function authenticateToken(req, res, next) {
     if (!header) return res.status(401).json({ message: 'Token requerido' });
 
     const token = header.startsWith('Bearer ') ? header.slice(7) : header;
-
     let payload;
     try {
       payload = jwt.verify(token, process.env.JWT_SECRET);
@@ -67,9 +65,17 @@ async function authenticateToken(req, res, next) {
       return res.status(403).json({ message: 'Usuario inactivo. Contacte al administrador.' });
     }
 
-    // Adjunta rol normalizado (útil para logs o futuras decisiones)
-    req.user = { ...user, rolNorm: normalizeRole(user.rol) };
-    req.permissions = getPermissionsByRole(user.rol);
+    const rolNorm = normalizeRole(user.rol);
+    const permissions = getPermissionsByRole(user.rol);
+
+    req.user = { ...user, rolNorm };
+    req.permissions = permissions;
+
+    // Log útil en prod (apaga si quieres)
+    console.log(
+      `[AUTH] uid=${user.id} rol="${user.rol}" → rolNorm=${rolNorm} perms=[${permissions.join(',')}]`,
+    );
+
     next();
   } catch (err) {
     console.error('authenticateToken error', err);
@@ -77,7 +83,7 @@ async function authenticateToken(req, res, next) {
   }
 }
 
-/** Autorización por roles. Uso: authorizeRoles('ADMIN','PRODUCCION') */
+/** Autorización por roles */
 function authorizeRoles(...allowedRoles) {
   const allow = allowedRoles.map(normalizeRole);
   return (req, res, next) => {
@@ -90,7 +96,7 @@ function authorizeRoles(...allowedRoles) {
   };
 }
 
-/** Autorización por permisos finos */
+/** Autorización por permisos */
 function authorizePermissions(...required) {
   return (req, res, next) => {
     if (!req.permissions) return res.status(401).json({ message: 'No autenticado' });
@@ -102,7 +108,7 @@ function authorizePermissions(...required) {
   };
 }
 
-/* Aliases */
+/* Aliases convenientes */
 const requireAuth = authenticateToken;
 const requireRole = (...roles) => authorizeRoles(...roles);
 const requireRoleAdmin = authorizeRoles('ADMIN');
