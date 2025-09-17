@@ -15,7 +15,7 @@ const ORIGINS = ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : DEFAULT_ORIGINS;
 
 const corsOptions = {
   origin(origin, cb) {
-    if (!origin) return cb(null, true); // requests del mismo host / curl sin Origin
+    if (!origin) return cb(null, true); // mismo host / curl sin Origin
     if (ORIGINS.includes(origin) || /localhost:\d+$/i.test(origin)) return cb(null, true);
     return cb(new Error(`CORS: Origin ${origin} no permitido`));
   },
@@ -26,7 +26,6 @@ const corsOptions = {
 
 // CORS para todas las rutas
 app.use(cors(corsOptions));
-
 app.options(/.*/, cors(corsOptions));
 
 /* ----------- Middlewares ------------ */
@@ -36,7 +35,7 @@ app.use((req, _res, next) => {
   next();
 });
 
-/* --------------- Rutas --------------- */
+/* ======= IMPORTS DE RUTAS ======= */
 const proveedoresRoutes = require('./src/routes/proveedores.routes');
 const authRoutes = require('./src/routes/auth.routes');
 const usuariosRoutes = require('./src/routes/usuarios.routes');
@@ -49,18 +48,55 @@ const productosRoutes = require('./src/routes/productos.routes');
 const produccionRoutes = require('./src/routes/produccion.routes');
 const categoriasRecetaRoutes = require('./src/routes/categoriasReceta.routes');
 const empaquesRoutes = require('./src/routes/empaques.routes');
-
-// pt.routes debe exportar { api, alias }
 const { api: ptApiRoutes, alias: ptAliasRoutes } = require('./src/routes/pt.routes');
 const cultivosRoutes = require('./src/routes/cultivos.routes');
 
-/* ====== Montaje ====== */
+/* ======= HOTFIX/DEBUG (ANTES de montar routers) ======= */
+const { authenticateToken } = require('./src/middlewares/auth');
+const materiasPrimasCtrl = require('./src/controllers/materiasPrimas.controller');
+
+// a) confirmar versión
+app.get('/api/__ping', (_req, res) => {
+  res.json({ ok: true, source: 'index-debug', ts: new Date().toISOString() });
+});
+
+// b) ver headers básicos
+app.get('/api/__headers', (req, res) => {
+  res.json({
+    origin: req.headers.origin || null,
+    authorization_present: !!req.headers.authorization,
+    authorization_sample: (req.headers.authorization || '').slice(0, 25) + '…',
+    host: req.headers.host,
+    referer: req.headers.referer || null,
+  });
+});
+
+// c) quién soy (rol/permisos reales que ve el backend)
+app.get('/api/__whoami', authenticateToken, (req, res) => {
+  const safe = { ...req.user };
+  delete safe.contrasena;
+  res.json({
+    user: safe,
+    role: safe?.rol || null,
+    roleNorm: safe?.rolNorm || null,
+    permissions: req.permissions || [],
+    ts: new Date().toISOString(),
+  });
+});
+
+// d) HOTFIX: lectura de MPs – solo requiere estar autenticado (PRODUCCION entra)
+app.get('/api/materias-primas', authenticateToken, materiasPrimasCtrl.listarMateriasPrimas);
+
+// e) ping de MPs para confirmar que este archivo es el que corre
+app.get('/api/materias-primas/__ping', (_req, res) => {
+  res.json({ ok: true, source: 'index-mp-hotfix', ts: new Date().toISOString() });
+});
+
+/* ====== Montaje de rutas normales ====== */
 // Alias que espera el frontend (con /api)
 app.use('/api/stock-pt', ptAliasRoutes);
-
-// (Opcional) Alias adicional sin /api para herramientas manuales
+// Alias adicional sin /api
 app.use('/stock-pt', ptAliasRoutes);
-
 // API formal de PT
 app.use('/api/pt', ptApiRoutes);
 
@@ -72,6 +108,7 @@ app.use('/api/recetas', recetasRoutes);
 app.use('/api/recetas', recetaProductoMapRoutes);
 app.use('/api/categorias-receta', categoriasRecetaRoutes);
 app.use('/api/cultivos', cultivosRoutes);
+
 // Auth y maestros
 app.use('/api/auth', authRoutes);
 app.use('/api/proveedores', proveedoresRoutes);
