@@ -1,19 +1,17 @@
 // src/middlewares/auth.js
 const jwt = require('jsonwebtoken');
 const prisma = require('../database/prismaClient');
-require('dotenv').config();
 
-/* -------- helpers -------- */
-function normalizeRole(v) {
-  return String(v || '')
+/* ============ Helpers ============ */
+const norm = (v) =>
+  String(v || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase()
     .trim();
-}
 
 function getPermissionsByRole(role) {
-  const R = normalizeRole(role);
+  const R = norm(role);
   const map = {
     ADMIN: [
       'USUARIOS_MANAGE',
@@ -33,13 +31,20 @@ function getPermissionsByRole(role) {
   return map[R] || [];
 }
 
-/* --- auth --- */
+function pickToken(req) {
+  const h = req.headers.authorization || req.headers.Authorization;
+  if (!h) return null;
+  return h.startsWith('Bearer ') ? h.slice(7).trim() : String(h).trim();
+}
+
+/* ============ Auth ============ */
 async function authenticateToken(req, res, next) {
   try {
-    const header = req.headers['authorization'] || req.headers['Authorization'];
-    if (!header) return res.status(401).json({ message: 'Token requerido' });
-
-    const token = header.startsWith('Bearer ') ? header.slice(7) : header;
+    const token = pickToken(req);
+    if (!token) return res.status(401).json({ message: 'Token requerido' });
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({ message: 'Configuración faltante: JWT_SECRET' });
+    }
 
     let payload;
     try {
@@ -48,57 +53,53 @@ async function authenticateToken(req, res, next) {
       return res.status(401).json({ message: 'Token inválido o expirado' });
     }
 
-    const pid = payload?.userId ?? payload?.id ?? payload?.user?.id;
+    const pid = Number(payload?.userId ?? payload?.id ?? payload?.user?.id);
     if (!pid) return res.status(401).json({ message: 'Token sin identificador de usuario' });
 
     const user = await prisma.usuarios.findUnique({
-      where: { id: Number(pid) },
+      where: { id: pid },
       select: { id: true, usuario: true, nombre: true, rol: true, estado: true },
     });
     if (!user) return res.status(401).json({ message: 'Usuario no encontrado' });
-    if (user.estado === false) {
-      return res.status(403).json({ message: 'Usuario inactivo. Contacte al administrador.' });
-    }
+    if (user.estado === false) return res.status(403).json({ message: 'Usuario inactivo' });
 
-    req.user = { ...user, rolNorm: normalizeRole(user.rol) };
+    req.user = { ...user, rolNorm: norm(user.rol) };
     req.permissions = getPermissionsByRole(user.rol);
-    next();
+    return next();
   } catch (err) {
-    console.error('authenticateToken error', err);
-    res.status(500).json({ message: 'Error de servidor' });
+    return res.status(500).json({ message: 'Error de servidor' });
   }
 }
 
-function authorizeRoles(...allowed) {
-  const allow = allowed.map(normalizeRole);
+/* ============ Autorización ============ */
+function authorizeRoles(...roles) {
+  const allow = roles.map(norm);
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ message: 'No autenticado' });
-    const role = normalizeRole(req.user.rol);
-    if (!allow.includes(role)) return res.status(403).json({ message: 'No autorizado (rol)' });
-    next();
+    if (!allow.includes(norm(req.user.rol))) {
+      return res.status(403).json({ message: 'No autorizado (rol)' });
+    }
+    return next();
   };
 }
 
 function authorizePermissions(...required) {
+  const must = [...new Set(required)];
   return (req, res, next) => {
     if (!req.permissions) return res.status(401).json({ message: 'No autenticado' });
-    const missing = required.filter((p) => !req.permissions.includes(p));
+    const missing = must.filter((p) => !req.permissions.includes(p));
     if (missing.length) return res.status(403).json({ message: 'No autorizado (permiso)' });
-    next();
+    return next();
   };
 }
 
-const requireAuth = authenticateToken;
-const requireRole = (...roles) => authorizeRoles(...roles);
-const requireRoleAdmin = authorizeRoles('ADMIN');
-
+/* ============ Exports ============ */
 module.exports = {
   authenticateToken,
   authorizeRoles,
   authorizePermissions,
   getPermissionsByRole,
-  requireAuth,
-  requireRole,
-  requireRoleAdmin,
-  default: authenticateToken,
+  requireAuth: authenticateToken,
+  requireRole: (...roles) => authorizeRoles(...roles),
+  requireRoleAdmin: authorizeRoles('ADMIN'),
 };

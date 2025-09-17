@@ -3,22 +3,10 @@ const express = require('express');
 const router = express.Router();
 
 const ctrl = require('../controllers/materiasPrimas.controller');
-const { authenticateToken } = require('../middlewares/auth');
+const { authenticateToken, authorizeRoles } = require('../middlewares/auth');
 
-/* ============ Helpers ============ */
-function norm(v) {
-  return String(v || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase()
-    .trim();
-}
-function isAdmin(req) {
-  return norm(req?.user?.rol) === 'ADMIN';
-}
-
-/* ============ Diagnóstico rápido (¡deja esto!) ============ */
-// NO requiere token: sirve para confirmar que el código nuevo sí está desplegado
+/* ============ Diags (útiles en prod) ============ */
+// No requiere token: confirma que esta versión está desplegada
 router.get('/__ping', (_req, res) => {
   res.json({
     ok: true,
@@ -28,75 +16,54 @@ router.get('/__ping', (_req, res) => {
   });
 });
 
-// Requiere token: muestra qué usuario/rol/permisos llegan al backend
+// Requiere token: ver qué usuario/rol/permisos llegan al backend
 router.get('/__debug', authenticateToken, (req, res) => {
   res.json({
     user: req.user || null,
     role: req.user?.rol || null,
-    roleNorm: norm(req.user?.rol),
+    roleNorm: req.user?.rolNorm || null,
     permissions: req.permissions || [],
-    authzHeader: req.headers['authorization'] || req.headers['Authorization'] || null,
+    authzHeader: req.headers.authorization || req.headers.Authorization || null,
   });
 });
 
 /* ============ Reglas ============ */
 /*
- * REGLA: PRODUCCION y ADMIN pueden LISTAR/VER MPs.
- *        Solo ADMIN puede crear/editar/cambiar estado/eliminar.
+ * ADMIN y PRODUCCION pueden LISTAR / OBTENER.
+ * Solo ADMIN puede CREAR / ACTUALIZAR / CAMBIAR ESTADO / ELIMINAR.
  */
 
 // Crear (solo ADMIN)
-router.post(
+router.post('/', authenticateToken, authorizeRoles('ADMIN'), ctrl.crearMateriaPrima);
+
+// Listar (ADMIN o PRODUCCION) ← usa Cultivos
+router.get(
   '/',
   authenticateToken,
-  (req, res, next) => {
-    if (!isAdmin(req))
-      return res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
-    next();
-  },
-  ctrl.crearMateriaPrima,
+  authorizeRoles('ADMIN', 'PRODUCCION'),
+  ctrl.listarMateriasPrimas,
 );
-
-// Listar (ADMIN o PRODUCCION)  ← ESTA ES LA QUE NECESITA CULTIVOS
-router.get('/', authenticateToken, ctrl.listarMateriasPrimas);
 
 // Obtener por id (ADMIN o PRODUCCION)
-router.get('/:id', authenticateToken, ctrl.obtenerMateriaPrima);
-
-// Actualizar (solo ADMIN)
-router.put(
+router.get(
   '/:id',
   authenticateToken,
-  (req, res, next) => {
-    if (!isAdmin(req))
-      return res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
-    next();
-  },
-  ctrl.actualizarMateriaPrima,
+  authorizeRoles('ADMIN', 'PRODUCCION'),
+  ctrl.obtenerMateriaPrima,
 );
+
+// Actualizar (solo ADMIN)
+router.put('/:id', authenticateToken, authorizeRoles('ADMIN'), ctrl.actualizarMateriaPrima);
 
 // Cambiar estado (solo ADMIN)
 router.patch(
   '/:id/estado',
   authenticateToken,
-  (req, res, next) => {
-    if (!isAdmin(req))
-      return res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
-    next();
-  },
+  authorizeRoles('ADMIN'),
   ctrl.cambiarEstadoMateriaPrima,
 );
 
 // Eliminar (solo ADMIN)
-router.delete(
-  '/:id',
-  authenticateToken,
-  (req, res, next) => {
-    if (!isAdmin(req))
-      return res.status(403).json({ message: 'No autorizado (se requiere ADMIN)' });
-    next();
-  },
-  ctrl.eliminarMateriaPrima,
-);
+router.delete('/:id', authenticateToken, authorizeRoles('ADMIN'), ctrl.eliminarMateriaPrima);
 
 module.exports = router;

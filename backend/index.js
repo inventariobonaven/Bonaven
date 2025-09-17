@@ -2,40 +2,66 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
-const app = express();
+
 dotenv.config();
+const app = express();
 
 /* ---------------- CORS ---------------- */
 const DEFAULT_ORIGINS = ['http://localhost:5173'];
-const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || '')
+const ENV_ORIGINS = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
-const ORIGINS = ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : DEFAULT_ORIGINS;
+
+// Render / Vercel hints
+const RENDER_URL = (process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
+const VERCEL_URL = (process.env.VERCEL_URL || '').replace(/\/+$/, ''); // e.g. myapp.vercel.app
+if (VERCEL_URL && !ENV_ORIGINS.includes(`https://${VERCEL_URL}`)) {
+  ENV_ORIGINS.push(`https://${VERCEL_URL}`);
+}
+if (RENDER_URL && !ENV_ORIGINS.includes(RENDER_URL)) {
+  ENV_ORIGINS.push(RENDER_URL);
+}
+
+const ORIGINS = ENV_ORIGINS.length ? ENV_ORIGINS : DEFAULT_ORIGINS;
+
+// Patrones permitidos además de la lista explícita
+const ORIGIN_PATTERNS = [
+  /localhost:\d+$/i,
+  /^https?:\/\/([a-z0-9-]+\.)*vercel\.app$/i,
+  /^https?:\/\/([a-z0-9-]+\.)*onrender\.com$/i,
+];
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true; // same-host / curl sin Origin
+  if (ORIGINS.includes(origin)) return true;
+  return ORIGIN_PATTERNS.some((rx) => rx.test(origin));
+}
 
 const corsOptions = {
   origin(origin, cb) {
-    if (!origin) return cb(null, true); // mismo host / curl sin Origin
-    if (ORIGINS.includes(origin) || /localhost:\d+$/i.test(origin)) return cb(null, true);
-    return cb(new Error(`CORS: Origin ${origin} no permitido`));
+    return isAllowedOrigin(origin)
+      ? cb(null, true)
+      : cb(new Error(`CORS: Origin ${origin} no permitido`));
   },
   credentials: true,
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 };
 
-// CORS para todas las rutas
+// CORS global + preflight
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 
 /* ----------- Middlewares ------------ */
+app.set('trust proxy', true); // Render/Vercel
 app.use(express.json({ limit: '1mb' }));
 app.use((req, _res, next) => {
   console.log(`[API] ${req.method} ${req.url}`);
   next();
 });
 
-/* ======= IMPORTS DE RUTAS ======= */
+/* --------------- Rutas --------------- */
 const proveedoresRoutes = require('./src/routes/proveedores.routes');
 const authRoutes = require('./src/routes/auth.routes');
 const usuariosRoutes = require('./src/routes/usuarios.routes');
@@ -48,54 +74,15 @@ const productosRoutes = require('./src/routes/productos.routes');
 const produccionRoutes = require('./src/routes/produccion.routes');
 const categoriasRecetaRoutes = require('./src/routes/categoriasReceta.routes');
 const empaquesRoutes = require('./src/routes/empaques.routes');
+
+// pt.routes debe exportar { api, alias }
 const { api: ptApiRoutes, alias: ptAliasRoutes } = require('./src/routes/pt.routes');
 const cultivosRoutes = require('./src/routes/cultivos.routes');
 
-/* ======= HOTFIX/DEBUG (ANTES de montar routers) ======= */
-const { authenticateToken } = require('./src/middlewares/auth');
-const materiasPrimasCtrl = require('./src/controllers/materiasPrimas.controller');
-
-// a) confirmar versión
-app.get('/api/__ping', (_req, res) => {
-  res.json({ ok: true, source: 'index-debug', ts: new Date().toISOString() });
-});
-
-// b) ver headers básicos
-app.get('/api/__headers', (req, res) => {
-  res.json({
-    origin: req.headers.origin || null,
-    authorization_present: !!req.headers.authorization,
-    authorization_sample: (req.headers.authorization || '').slice(0, 25) + '…',
-    host: req.headers.host,
-    referer: req.headers.referer || null,
-  });
-});
-
-// c) quién soy (rol/permisos reales que ve el backend)
-app.get('/api/__whoami', authenticateToken, (req, res) => {
-  const safe = { ...req.user };
-  delete safe.contrasena;
-  res.json({
-    user: safe,
-    role: safe?.rol || null,
-    roleNorm: safe?.rolNorm || null,
-    permissions: req.permissions || [],
-    ts: new Date().toISOString(),
-  });
-});
-
-// d) HOTFIX: lectura de MPs – solo requiere estar autenticado (PRODUCCION entra)
-app.get('/api/materias-primas', authenticateToken, materiasPrimasCtrl.listarMateriasPrimas);
-
-// e) ping de MPs para confirmar que este archivo es el que corre
-app.get('/api/materias-primas/__ping', (_req, res) => {
-  res.json({ ok: true, source: 'index-mp-hotfix', ts: new Date().toISOString() });
-});
-
-/* ====== Montaje de rutas normales ====== */
+/* ====== Montaje ====== */
 // Alias que espera el frontend (con /api)
 app.use('/api/stock-pt', ptAliasRoutes);
-// Alias adicional sin /api
+// (Opcional) Alias adicional sin /api para herramientas manuales
 app.use('/stock-pt', ptAliasRoutes);
 // API formal de PT
 app.use('/api/pt', ptApiRoutes);
@@ -117,7 +104,16 @@ app.use('/api/materias-primas', materiasPrimasRoutes);
 app.use('/api/lotes-materia-prima', lotesMateriaPrimaRoutes);
 app.use('/api/movimientos-mp', movimientosMpRoutes);
 
-// Healthchecks
+/* ------ Health/diag ------ */
+app.get('/api/__ping', (_req, res) => {
+  res.json({
+    ok: true,
+    time: new Date().toISOString(),
+    env: process.env.NODE_ENV || null,
+    commit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null,
+    origins: ORIGINS,
+  });
+});
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 app.get('/', (_req, res) => res.send('API funcionando 🚀'));
 
@@ -127,12 +123,13 @@ app.use((req, res, _next) => {
 });
 app.use((err, _req, res, _next) => {
   console.error('[ERROR]', err?.message || err);
-  res.status(500).json({ message: err?.message || 'Error interno del servidor' });
+  const status = /CORS: Origin/.test(err?.message) ? 403 : 500;
+  res.status(status).json({ message: err?.message || 'Error interno del servidor' });
 });
 
 /* --------------- Server -------------- */
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
-  console.log(`CORS orígenes permitidos: ${ORIGINS.join(', ')}`);
+  console.log(`CORS orígenes permitidos (EXP): ${ORIGINS.join(', ') || '(default localhost)'}`);
 });
