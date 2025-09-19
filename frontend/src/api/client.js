@@ -1,24 +1,25 @@
-// src/api/client.js
 import axios from 'axios';
 
 /** Normaliza la URL del backend y garantiza el sufijo /api */
 function buildApiBase(raw) {
-  const root = (raw || 'http://localhost:3001').replace(/\/+$/, '');
+  const root = (raw || 'http://localhost:3001').replace(/\/+$/, ''); // sin slash final
   return /\/api$/i.test(root) ? root : `${root}/api`;
 }
 
+// ⚠️ VITE_API_URL debe apuntar al ROOT del backend (SIN /api). Ej: https://inventario-backend.onrender.com
 export const API_BASE = buildApiBase(import.meta.env.VITE_API_URL);
 
 /** ===== instancia axios ===== */
 const api = axios.create({
   baseURL: API_BASE,
-  withCredentials: false, // ← no usamos cookies
+  withCredentials: false, // no usamos cookies/sesiones
   headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
 });
 
 /* Debug: ver a dónde está apuntando el frontend ya compilado */
 if (typeof window !== 'undefined') {
   window.API_BASE = API_BASE;
+  // eslint-disable-next-line no-console
   console.log('[api] baseURL =', API_BASE);
 }
 
@@ -34,7 +35,7 @@ function readAuthObj() {
   }
 }
 
-// Saca token de auth/token y LO SANEa (quita CR/LF y espacios)
+// Saca token de auth/token y lo sanea
 function getToken() {
   const a = readAuthObj();
   let t = a?.token || localStorage.getItem(LS_TOKEN) || '';
@@ -54,8 +55,8 @@ function clearAuth() {
 /* ===== interceptores ===== */
 api.interceptors.request.use((config) => {
   const url = String(config.url || '');
-  const isLogin = url.includes('/auth/login'); // solo login SIN token
-  if (!isLogin) {
+  const isAuthEndpoint = url.startsWith('/auth') || url.includes('/auth/');
+  if (!isAuthEndpoint) {
     const token = getToken();
     if (token) {
       config.headers = config.headers || {};
@@ -72,7 +73,7 @@ api.interceptors.response.use(
     const status = error?.response?.status;
     const onLogin = typeof window !== 'undefined' && window.location.pathname === '/login';
 
-    // Token inválido/expirado → limpiar y enviar a /login (sin loop)
+    // Solo 401 → token inválido/expirado: limpiar y redirigir
     if (status === 401 && !onLogin) {
       if (!redirecting) {
         redirecting = true;
@@ -81,9 +82,10 @@ api.interceptors.response.use(
         u.searchParams.set('expired', '1');
         window.location.replace(u.toString());
       }
-      return;
+      return; // cortamos la promesa
     }
-    // 403/404 etc. que lo maneje cada pantalla
+
+    // 403/404/etc: que lo maneje cada view
     return Promise.reject(error);
   },
 );
