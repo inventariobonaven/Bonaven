@@ -471,10 +471,16 @@ function IngredientesManager({ receta, open, onClose }) {
     setLoading(true);
     try {
       const [M, I] = await Promise.all([
-        api.get('/materias-primas?estado=true'),
+        // Solo INSUMOS activos
+        api.get('/materias-primas?estado=true&tipo=INSUMO'),
         api.get(`/recetas/${receta.id}/ingredientes`),
       ]);
-      const arrM = Array.isArray(M.data) ? M.data.slice().sort(byNombre) : []; // ORDEN ALFABÉTICO
+
+      const arrM = (Array.isArray(M.data) ? M.data : [])
+        .filter((m) => String(m.tipo || '').toUpperCase() === 'INSUMO') // defensivo
+        .slice()
+        .sort(byNombre);
+
       setMaterias(arrM);
       setItems(Array.isArray(I.data) ? I.data : []);
     } catch {

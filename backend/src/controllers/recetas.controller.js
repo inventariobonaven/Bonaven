@@ -20,9 +20,11 @@ const toPosIntOrNull = (x) => {
 };
 
 const isValidVencBase = (v) =>
-  [Prisma.VencimientoBase.PRODUCCION, Prisma.VencimientoBase.EMPAQUE, Prisma.VencimientoBase.HORNEO].includes(
-    String(v).toUpperCase?.() ? Prisma.VencimientoBase[String(v).toUpperCase()] : v
-  );
+  [
+    Prisma.VencimientoBase.PRODUCCION,
+    Prisma.VencimientoBase.EMPAQUE,
+    Prisma.VencimientoBase.HORNEO,
+  ].includes(String(v).toUpperCase?.() ? Prisma.VencimientoBase[String(v).toUpperCase()] : v);
 
 const parseVencBase = (v) =>
   String(v).toUpperCase?.() ? Prisma.VencimientoBase[String(v).toUpperCase()] : v;
@@ -37,11 +39,18 @@ const includeReceta = {
     },
     orderBy: { id: 'asc' },
   },
-  // NUEVO: mapeos receta⇄producto (rendimiento/unidades/vencimiento)
+  // Mapeos receta⇄producto (rendimiento/unidades/vencimiento)
   producto_maps: {
     include: {
       producto: {
-        select: { id: true, nombre: true, requiere_congelacion_previa: true, empaque_mp_id: true, bolsas_por_unidad: true, unidades_por_empaque: true },
+        select: {
+          id: true,
+          nombre: true,
+          requiere_congelacion_previa: true,
+          empaque_mp_id: true,
+          bolsas_por_unidad: true,
+          unidades_por_empaque: true,
+        },
       },
     },
     orderBy: { id: 'asc' },
@@ -121,11 +130,15 @@ exports.crear = async (req, res) => {
 
     // refs opcionales
     if (producto_id) {
-      const prod = await prisma.productos_terminados.findUnique({ where: { id: Number(producto_id) } });
+      const prod = await prisma.productos_terminados.findUnique({
+        where: { id: Number(producto_id) },
+      });
       if (!prod) return res.status(404).json({ message: 'Producto terminado no encontrado' });
     }
     if (categoria_id) {
-      const cat = await prisma.categorias_receta.findUnique({ where: { id: Number(categoria_id) } });
+      const cat = await prisma.categorias_receta.findUnique({
+        where: { id: Number(categoria_id) },
+      });
       if (!cat) return res.status(404).json({ message: 'Categoría no encontrada' });
     }
 
@@ -133,21 +146,26 @@ exports.crear = async (req, res) => {
     let rpbDec;
     if (rendimiento_por_batch !== undefined) {
       rpbDec = toDec(rendimiento_por_batch);
-      if (rpbDec.lte(0)) return res.status(400).json({ message: 'rendimiento_por_batch debe ser > 0' });
+      if (rpbDec.lte(0))
+        return res.status(400).json({ message: 'rendimiento_por_batch debe ser > 0' });
     }
 
-    // Validar ingredientes
+    // Validar ingredientes (estructura básica)
     const matIds = new Set();
     for (const ing of ingredientes) {
       if (!ing.materia_prima_id || ing.cantidad === undefined) {
-        return res.status(400).json({ message: 'Cada ingrediente requiere materia_prima_id y cantidad' });
+        return res
+          .status(400)
+          .json({ message: 'Cada ingrediente requiere materia_prima_id y cantidad' });
       }
       if (!(Number(ing.cantidad) > 0)) {
         return res.status(400).json({ message: 'cantidad de ingrediente debe ser > 0' });
       }
       const key = String(ing.materia_prima_id);
       if (matIds.has(key)) {
-        return res.status(400).json({ message: 'Ingrediente repetido para la misma materia prima' });
+        return res
+          .status(400)
+          .json({ message: 'Ingrediente repetido para la misma materia prima' });
       }
       matIds.add(key);
     }
@@ -158,13 +176,17 @@ exports.crear = async (req, res) => {
       if (!pId) return res.status(400).json({ message: 'mapeo: producto_id es obligatorio' });
 
       const und = toPosIntOrNull(m.unidades_por_batch);
-      if (und === null) return res.status(400).json({ message: 'mapeo: unidades_por_batch debe ser entero > 0' });
+      if (und === null)
+        return res.status(400).json({ message: 'mapeo: unidades_por_batch debe ser entero > 0' });
 
       const dias = toPosIntOrNull(m.vida_util_dias);
-      if (dias === null) return res.status(400).json({ message: 'mapeo: vida_util_dias debe ser entero > 0' });
+      if (dias === null)
+        return res.status(400).json({ message: 'mapeo: vida_util_dias debe ser entero > 0' });
 
       if (!isValidVencBase(m.vencimiento_base)) {
-        return res.status(400).json({ message: 'mapeo: vencimiento_base inválido (PRODUCCION|EMPAQUE|HORNEO)' });
+        return res
+          .status(400)
+          .json({ message: 'mapeo: vencimiento_base inválido (PRODUCCION|EMPAQUE|HORNEO)' });
       }
 
       const prod = await prisma.productos_terminados.findUnique({ where: { id: pId } });
@@ -182,15 +204,30 @@ exports.crear = async (req, res) => {
         },
       });
 
+      // -------- Ingredientes (solo INSUMOS) --------
       if (ingredientes.length) {
         const payload = [];
         for (const ing of ingredientes) {
-          const mp = await tx.materias_primas.findUnique({ where: { id: Number(ing.materia_prima_id) } });
+          const mp = await tx.materias_primas.findUnique({
+            where: { id: Number(ing.materia_prima_id) },
+          });
           if (!mp) throw new Error('Materia prima no encontrada');
+
+          // 🚫 No permitir EMPAQUE ni CULTIVO como ingrediente
+          const tipoMp = String(mp.tipo || '').toUpperCase();
+          if (tipoMp === 'EMPAQUE' || tipoMp === 'CULTIVO') {
+            throw new Error(
+              `La materia prima "${mp.nombre}" no es un insumo (no se permiten empaques ni cultivos)`,
+            );
+          }
 
           let cantidadBase = Number(ing.cantidad);
           if (ing.unidad) {
-            const { qtyBase } = coerceToMpBase(Number(ing.cantidad), String(ing.unidad), mp.unidad_medida);
+            const { qtyBase } = coerceToMpBase(
+              Number(ing.cantidad),
+              String(ing.unidad),
+              mp.unidad_medida,
+            );
             cantidadBase = qtyBase; // normalizado a unidad base de la MP
           }
 
@@ -207,6 +244,7 @@ exports.crear = async (req, res) => {
         });
       }
 
+      // -------- Mapeos receta⇄producto --------
       if (mapeos.length) {
         for (const m of mapeos) {
           await tx.receta_producto_map.create({
@@ -224,12 +262,15 @@ exports.crear = async (req, res) => {
       return receta.id;
     });
 
-    const full = await prisma.recetas.findUnique({ where: { id: recetaId }, include: includeReceta });
+    const full = await prisma.recetas.findUnique({
+      where: { id: recetaId },
+      include: includeReceta,
+    });
     res.status(201).json(full);
   } catch (e) {
     console.error('[recetas.crear]', e);
     if (e?.code === 'P2002') {
-      return res.status(400).json({ message: 'Ya existe un mapeo receta↔producto duplicado' });
+      return res.status(400).json({ message: 'Ya existe un mapeo receta↔️producto duplicado' });
     }
     res.status(500).json({ message: 'Error creando receta' });
   }
@@ -239,26 +280,24 @@ exports.crear = async (req, res) => {
 exports.actualizar = async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const {
-      producto_id,
-      categoria_id,
-      nombre,
-      estado,
-      rendimiento_por_batch,
-    } = req.body;
+    const { producto_id, categoria_id, nombre, estado, rendimiento_por_batch } = req.body;
 
     const r = await prisma.recetas.findUnique({ where: { id } });
     if (!r) return res.status(404).json({ message: 'Receta no encontrada' });
 
     if (producto_id !== undefined && producto_id !== null) {
       if (producto_id) {
-        const prod = await prisma.productos_terminados.findUnique({ where: { id: Number(producto_id) } });
+        const prod = await prisma.productos_terminados.findUnique({
+          where: { id: Number(producto_id) },
+        });
         if (!prod) return res.status(404).json({ message: 'Producto terminado no encontrado' });
       }
     }
     if (categoria_id !== undefined && categoria_id !== null) {
       if (categoria_id) {
-        const cat = await prisma.categorias_receta.findUnique({ where: { id: Number(categoria_id) } });
+        const cat = await prisma.categorias_receta.findUnique({
+          where: { id: Number(categoria_id) },
+        });
         if (!cat) return res.status(404).json({ message: 'Categoría no encontrada' });
       }
     }
@@ -266,15 +305,20 @@ exports.actualizar = async (req, res) => {
     let rpbData = {};
     if (rendimiento_por_batch !== undefined) {
       const rpbDec = toDec(rendimiento_por_batch);
-      if (rpbDec.lte(0)) return res.status(400).json({ message: 'rendimiento_por_batch debe ser > 0' });
+      if (rpbDec.lte(0))
+        return res.status(400).json({ message: 'rendimiento_por_batch debe ser > 0' });
       rpbData = { rendimiento_por_batch: rpbDec };
     }
 
     const updated = await prisma.recetas.update({
       where: { id },
       data: {
-        ...(producto_id !== undefined ? { producto_id: producto_id ? Number(producto_id) : null } : {}),
-        ...(categoria_id !== undefined ? { categoria_id: categoria_id ? Number(categoria_id) : null } : {}),
+        ...(producto_id !== undefined
+          ? { producto_id: producto_id ? Number(producto_id) : null }
+          : {}),
+        ...(categoria_id !== undefined
+          ? { categoria_id: categoria_id ? Number(categoria_id) : null }
+          : {}),
         ...(nombre !== undefined ? { nombre: String(nombre).trim() } : {}),
         ...(estado !== undefined ? { estado: !!estado } : {}),
         ...rpbData,
@@ -301,7 +345,9 @@ exports.eliminar = async (req, res) => {
     if (hard) {
       const count = await prisma.producciones.count({ where: { receta_id: id } });
       if (count > 0) {
-        return res.status(400).json({ message: 'No se puede eliminar: la receta tiene producciones asociadas' });
+        return res
+          .status(400)
+          .json({ message: 'No se puede eliminar: la receta tiene producciones asociadas' });
       }
       await prisma.ingredientes_receta.deleteMany({ where: { receta_id: id } });
       await prisma.recetas.delete({ where: { id } });
@@ -324,7 +370,11 @@ exports.toggleEstado = async (req, res) => {
     const { estado } = req.body;
     if (estado === undefined) return res.status(400).json({ message: 'estado requerido' });
 
-    const r = await prisma.recetas.update({ where: { id }, data: { estado: !!estado }, include: includeReceta });
+    const r = await prisma.recetas.update({
+      where: { id },
+      data: { estado: !!estado },
+      include: includeReceta,
+    });
     res.json(r);
   } catch (e) {
     console.error('[recetas.toggleEstado]', e);
@@ -343,7 +393,9 @@ exports.listarIngredientes = async (req, res) => {
 
     const ingredientes = await prisma.ingredientes_receta.findMany({
       where: { receta_id: id },
-      include: { materias_primas: { select: { id: true, nombre: true, unidad_medida: true } } },
+      include: {
+        materias_primas: { select: { id: true, nombre: true, unidad_medida: true } },
+      },
       orderBy: { id: 'asc' },
     });
 
@@ -370,11 +422,23 @@ exports.agregarIngrediente = async (req, res) => {
     const rec = await prisma.recetas.findUnique({ where: { id: receta_id } });
     if (!rec) return res.status(404).json({ message: 'Receta no encontrada' });
 
-    const mp = await prisma.materias_primas.findUnique({ where: { id: Number(materia_prima_id) } });
+    const mp = await prisma.materias_primas.findUnique({
+      where: { id: Number(materia_prima_id) },
+    });
     if (!mp) return res.status(404).json({ message: 'Materia prima no encontrada' });
 
+    // 🚫 No permitir EMPAQUE ni CULTIVO como ingrediente
+    const tipoMp = String(mp.tipo || '').toUpperCase();
+    if (tipoMp === 'EMPAQUE' || tipoMp === 'CULTIVO') {
+      return res.status(400).json({
+        message: `La materia prima "${mp.nombre}" no es un insumo (no se permiten empaques ni cultivos)`,
+      });
+    }
+
     const existing = await prisma.ingredientes_receta.findUnique({
-      where: { receta_id_materia_prima_id: { receta_id, materia_prima_id: Number(materia_prima_id) } },
+      where: {
+        receta_id_materia_prima_id: { receta_id, materia_prima_id: Number(materia_prima_id) },
+      },
     });
     if (existing) return res.status(400).json({ message: 'La materia prima ya está en la receta' });
 
@@ -391,7 +455,9 @@ exports.agregarIngrediente = async (req, res) => {
         materia_prima_id: Number(materia_prima_id),
         cantidad: toDec(cantidadBaseNum),
       },
-      include: { materias_primas: { select: { id: true, nombre: true, unidad_medida: true } } },
+      include: {
+        materias_primas: { select: { id: true, nombre: true, unidad_medida: true } },
+      },
     });
 
     res.status(201).json(created);
@@ -415,17 +481,27 @@ exports.actualizarIngrediente = async (req, res) => {
     });
     if (!exists) return res.status(404).json({ message: 'Ingrediente no encontrado' });
 
+    // (Defensivo) si por algún motivo el MP asociado no es un insumo, bloquear
+    const tipoMp = String(exists.materias_primas?.tipo || '').toUpperCase();
+    if (tipoMp === 'EMPAQUE' || tipoMp === 'CULTIVO') {
+      return res
+        .status(400)
+        .json({ message: 'El ingrediente no es un insumo válido (empaque/cultivo no permitido)' });
+    }
+
     let cantidadBaseNum = Number(cantidad);
     if (unidad) {
-      const { qtyBase } = coerceToMpBase(Number(cantidad), String(unidad), exists.materias_primas.unidad_medida);
+      const { qtyBase } = coerceToMpBase(
+        Number(cantidad),
+        String(unidad),
+        exists.materias_primas.unidad_medida,
+      );
       cantidadBaseNum = qtyBase;
     }
 
     const updated = await prisma.ingredientes_receta.update({
       where: { id: ingId },
-      data: {
-        cantidad: toDec(cantidadBaseNum),
-      },
+      data: { cantidad: toDec(cantidadBaseNum) },
       include: { materias_primas: { select: { id: true, nombre: true, unidad_medida: true } } },
     });
 
@@ -462,7 +538,9 @@ exports.listarMapeos = async (req, res) => {
 
     const rows = await prisma.receta_producto_map.findMany({
       where: { receta_id: id },
-      include: { producto: { select: { id: true, nombre: true, requiere_congelacion_previa: true } } },
+      include: {
+        producto: { select: { id: true, nombre: true, requiere_congelacion_previa: true } },
+      },
       orderBy: { id: 'asc' },
     });
     res.json(rows);
@@ -486,13 +564,17 @@ exports.crearMapeo = async (req, res) => {
     if (!pId) return res.status(400).json({ message: 'producto_id es obligatorio' });
 
     const und = toPosIntOrNull(unidades_por_batch);
-    if (und === null) return res.status(400).json({ message: 'unidades_por_batch debe ser entero > 0' });
+    if (und === null)
+      return res.status(400).json({ message: 'unidades_por_batch debe ser entero > 0' });
 
     const dias = toPosIntOrNull(vida_util_dias);
-    if (dias === null) return res.status(400).json({ message: 'vida_util_dias debe ser entero > 0' });
+    if (dias === null)
+      return res.status(400).json({ message: 'vida_util_dias debe ser entero > 0' });
 
     if (!isValidVencBase(vencimiento_base)) {
-      return res.status(400).json({ message: 'vencimiento_base inválido (PRODUCCION|EMPAQUE|HORNEO)' });
+      return res
+        .status(400)
+        .json({ message: 'vencimiento_base inválido (PRODUCCION|EMPAQUE|HORNEO)' });
     }
 
     const prod = await prisma.productos_terminados.findUnique({ where: { id: pId } });
@@ -506,14 +588,18 @@ exports.crearMapeo = async (req, res) => {
         vida_util_dias: dias,
         vencimiento_base: parseVencBase(vencimiento_base),
       },
-      include: { producto: { select: { id: true, nombre: true, requiere_congelacion_previa: true } } },
+      include: {
+        producto: { select: { id: true, nombre: true, requiere_congelacion_previa: true } },
+      },
     });
 
     res.status(201).json(created);
   } catch (e) {
     console.error('[recetas.crearMapeo]', e);
     if (e?.code === 'P2002') {
-      return res.status(400).json({ message: 'Ya existe un mapeo de esta receta con ese producto' });
+      return res
+        .status(400)
+        .json({ message: 'Ya existe un mapeo de esta receta con ese producto' });
     }
     res.status(500).json({ message: 'Error creando mapeo' });
   }
@@ -533,20 +619,23 @@ exports.actualizarMapeo = async (req, res) => {
     if (!existing) return res.status(404).json({ message: 'Mapeo no encontrado' });
 
     const data = {};
-
     if (unidades_por_batch !== undefined) {
       const und = toPosIntOrNull(unidades_por_batch);
-      if (und === null) return res.status(400).json({ message: 'unidades_por_batch debe ser entero > 0' });
+      if (und === null)
+        return res.status(400).json({ message: 'unidades_por_batch debe ser entero > 0' });
       data.unidades_por_batch = und;
     }
     if (vida_util_dias !== undefined) {
       const dias = toPosIntOrNull(vida_util_dias);
-      if (dias === null) return res.status(400).json({ message: 'vida_util_dias debe ser entero > 0' });
+      if (dias === null)
+        return res.status(400).json({ message: 'vida_util_dias debe ser entero > 0' });
       data.vida_util_dias = dias;
     }
     if (vencimiento_base !== undefined) {
       if (!isValidVencBase(vencimiento_base)) {
-        return res.status(400).json({ message: 'vencimiento_base inválido (PRODUCCION|EMPAQUE|HORNEO)' });
+        return res
+          .status(400)
+          .json({ message: 'vencimiento_base inválido (PRODUCCION|EMPAQUE|HORNEO)' });
       }
       data.vencimiento_base = parseVencBase(vencimiento_base);
     }
@@ -554,7 +643,9 @@ exports.actualizarMapeo = async (req, res) => {
     const updated = await prisma.receta_producto_map.update({
       where: { id },
       data,
-      include: { producto: { select: { id: true, nombre: true, requiere_congelacion_previa: true } } },
+      include: {
+        producto: { select: { id: true, nombre: true, requiere_congelacion_previa: true } },
+      },
     });
 
     res.json(updated);
@@ -571,7 +662,7 @@ exports.eliminarMapeo = async (req, res) => {
     const exists = await prisma.receta_producto_map.findUnique({ where: { id } });
     if (!exists) return res.status(404).json({ message: 'Mapeo no encontrado' });
 
-    // Si ya existen producciones que referencien este mapeo (por lógica futura), aquí validarías.
+    // Si ya existen producciones que referencien este mapeo, aquí validarías.
     await prisma.receta_producto_map.delete({ where: { id } });
     res.json({ message: 'Mapeo eliminado' });
   } catch (e) {
@@ -579,6 +670,3 @@ exports.eliminarMapeo = async (req, res) => {
     res.status(500).json({ message: 'Error eliminando mapeo' });
   }
 };
-
-
-

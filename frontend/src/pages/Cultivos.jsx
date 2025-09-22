@@ -72,13 +72,13 @@ export default function Cultivos() {
       setLoading(false);
     }
   }
-
-  // ⚠️ Volvemos al endpoint global de MPs
   async function loadMPs() {
     try {
-      const { data } = await api.get('/materias-primas?estado=true');
-      const list = Array.isArray(data) ? data : [];
-      list.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+      const { data } = await api.get('/materias-primas?estado=true&tipo=INSUMO');
+      const list = (Array.isArray(data) ? data : [])
+        // defensivo por si algún dato legacy viene con tipo en minúscula
+        .filter((m) => String(m.tipo || '').toUpperCase() === 'INSUMO')
+        .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
       setMpList(list);
     } catch (e) {
       setMpList([]);

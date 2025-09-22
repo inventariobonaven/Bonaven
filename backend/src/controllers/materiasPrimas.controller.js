@@ -1,6 +1,9 @@
 // src/controllers/materiasPrimas.controller.js
 const prisma = require('../database/prismaClient');
 
+/* ------------ helpers ------------ */
+const toBool = (v) => /^(1|true|yes|on)$/i.test(String(v || '').trim());
+
 /**
  * Crear materia prima
  */
@@ -13,7 +16,7 @@ exports.crearMateriaPrima = async (req, res) => {
     }
 
     const existe = await prisma.materias_primas.findFirst({
-      where: { nombre: { equals: nombre.trim(), mode: 'insensitive' } }
+      where: { nombre: { equals: nombre.trim(), mode: 'insensitive' } },
     });
     if (existe) {
       return res.status(409).json({ message: 'Ya existe una materia prima con ese nombre' });
@@ -25,8 +28,8 @@ exports.crearMateriaPrima = async (req, res) => {
         tipo: tipo.trim(),
         unidad_medida: unidad_medida.trim(),
         estado: typeof estado === 'boolean' ? estado : true,
-        stock_total: 0 // Inicializar explícitamente
-      }
+        stock_total: 0,
+      },
     });
 
     res.status(201).json(nueva);
@@ -38,26 +41,43 @@ exports.crearMateriaPrima = async (req, res) => {
 
 /**
  * Listar materias primas
+ * Soporta:
+ *  - ?estado=true|false
+ *  - ?q=texto libre
+ *  - ?tipo=fragmento (insensitive)
+ *  - ?sinEmpaques=1  → excluye tipo EMPAQUE
  */
 exports.listarMateriasPrimas = async (req, res) => {
   try {
-    const { estado, q, tipo } = req.query;
+    const { estado, q, tipo, sinEmpaques } = req.query;
+
     const where = {};
+    const AND = [];
 
     if (estado === 'true') where.estado = true;
     if (estado === 'false') where.estado = false;
-    if (tipo?.trim()) where.tipo = { contains: tipo.trim(), mode: 'insensitive' };
+
+    if (tipo?.trim()) {
+      AND.push({ tipo: { contains: tipo.trim(), mode: 'insensitive' } });
+    }
+
+    if (toBool(sinEmpaques)) {
+      AND.push({ NOT: { tipo: { equals: 'EMPAQUE', mode: 'insensitive' } } });
+    }
+
     if (q?.trim()) {
       where.OR = [
         { nombre: { contains: q.trim(), mode: 'insensitive' } },
         { tipo: { contains: q.trim(), mode: 'insensitive' } },
-        { unidad_medida: { contains: q.trim(), mode: 'insensitive' } }
+        { unidad_medida: { contains: q.trim(), mode: 'insensitive' } },
       ];
     }
 
+    if (AND.length) where.AND = AND;
+
     const items = await prisma.materias_primas.findMany({
       where,
-      orderBy: { id: 'desc' }
+      orderBy: { id: 'desc' },
     });
 
     res.json(items);
@@ -75,10 +95,7 @@ exports.obtenerMateriaPrima = async (req, res) => {
     const id = parseInt(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ message: 'ID inválido' });
 
-    const materia = await prisma.materias_primas.findUnique({
-      where: { id }
-    });
-
+    const materia = await prisma.materias_primas.findUnique({ where: { id } });
     if (!materia) return res.status(404).json({ message: 'Materia prima no encontrada' });
 
     res.json(materia);
@@ -98,7 +115,7 @@ exports.obtenerStock = async (req, res) => {
 
     const materia = await prisma.materias_primas.findUnique({
       where: { id },
-      select: { id: true, nombre: true, stock_total: true }
+      select: { id: true, nombre: true, stock_total: true },
     });
 
     if (!materia) return res.status(404).json({ message: 'Materia prima no encontrada' });
@@ -126,10 +143,11 @@ exports.actualizarMateriaPrima = async (req, res) => {
       const dup = await prisma.materias_primas.findFirst({
         where: {
           nombre: { equals: nombre.trim(), mode: 'insensitive' },
-          NOT: { id }
-        }
+          NOT: { id },
+        },
       });
-      if (dup) return res.status(409).json({ message: 'Ya existe otra materia prima con ese nombre' });
+      if (dup)
+        return res.status(409).json({ message: 'Ya existe otra materia prima con ese nombre' });
     }
 
     const updated = await prisma.materias_primas.update({
@@ -138,8 +156,8 @@ exports.actualizarMateriaPrima = async (req, res) => {
         ...(typeof nombre === 'string' ? { nombre: nombre.trim() } : {}),
         ...(typeof tipo === 'string' ? { tipo: tipo.trim() } : {}),
         ...(typeof unidad_medida === 'string' ? { unidad_medida: unidad_medida.trim() } : {}),
-        ...(typeof estado === 'boolean' ? { estado } : {})
-      }
+        ...(typeof estado === 'boolean' ? { estado } : {}),
+      },
     });
 
     res.json(updated);
@@ -164,7 +182,7 @@ exports.cambiarEstadoMateriaPrima = async (req, res) => {
 
     const updated = await prisma.materias_primas.update({
       where: { id },
-      data: { estado: nuevoEstado }
+      data: { estado: nuevoEstado },
     });
 
     res.json({ message: 'Estado actualizado', materia: updated });
@@ -175,88 +193,58 @@ exports.cambiarEstadoMateriaPrima = async (req, res) => {
 };
 
 /**
-* Eliminar materia prima
-* - ?hard=true  -> intenta borrar definitivamente (valida dependencias)
-* - por defecto -> soft delete (estado=false)
-*/
+ * Eliminar materia prima
+ * - ?hard=true  -> intenta borrar definitivamente (valida dependencias)
+ * - por defecto -> soft delete (estado=false)
+ */
 exports.eliminarMateriaPrima = async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ message: 'ID inválido' });
 
-
     const { hard } = req.query;
     const materia = await prisma.materias_primas.findUnique({ where: { id } });
     if (!materia) return res.status(404).json({ message: 'Materia prima no encontrada' });
 
-
     if (hard === 'true') {
-      // 1) No permitir borrar si hay lotes asociados
       const tieneLotes = await prisma.lotes_materia_prima.findFirst({
-        where: { materia_prima_id: id }
+        where: { materia_prima_id: id },
       });
-      if (tieneLotes) {
-        return res.status(409).json({
-          message: 'No se puede eliminar: tiene lotes asociados.'
-        });
-      }
+      if (tieneLotes)
+        return res.status(409).json({ message: 'No se puede eliminar: tiene lotes asociados.' });
 
-
-      // 2) No permitir borrar si aparece en recetas
       const enRecetas = await prisma.ingredientes_receta.findFirst({
-        where: { materia_prima_id: id }
+        where: { materia_prima_id: id },
       });
-      if (enRecetas) {
-        return res.status(409).json({
-          message: 'No se puede eliminar: está siendo usada en recetas.'
-        });
-      }
+      if (enRecetas)
+        return res
+          .status(409)
+          .json({ message: 'No se puede eliminar: está siendo usada en recetas.' });
 
-
-      // 3) No permitir borrar si tiene historial (movimientos o trazabilidad)
       const tieneMovs = await prisma.movimientos_materia_prima.findFirst({
-        where: { materia_prima_id: id }
+        where: { materia_prima_id: id },
       });
-      if (tieneMovs) {
-        return res.status(409).json({
-          message: 'No se puede eliminar: existen movimientos de inventario asociados.'
-        });
-      }
-
+      if (tieneMovs)
+        return res
+          .status(409)
+          .json({ message: 'No se puede eliminar: existen movimientos de inventario asociados.' });
 
       const tieneTraza = await prisma.trazabilidad_produccion.findFirst({
-        where: { materia_prima_id: id }
+        where: { materia_prima_id: id },
       });
-      if (tieneTraza) {
-        return res.status(409).json({
-          message: 'No se puede eliminar: existe trazabilidad de producción asociada.'
-        });
-      }
+      if (tieneTraza)
+        return res
+          .status(409)
+          .json({ message: 'No se puede eliminar: existe trazabilidad de producción asociada.' });
 
-
-      // 4) Si no hay dependencias, borrar definitivamente
       await prisma.materias_primas.delete({ where: { id } });
       return res.status(204).send();
     }
 
-
-    // Soft delete por defecto
-    const updated = await prisma.materias_primas.update({
-      where: { id },
-      data: { estado: false }
-    });
+    const updated = await prisma.materias_primas.update({ where: { id }, data: { estado: false } });
     return res.json({ message: 'Materia prima desactivada', materia: updated });
   } catch (err) {
     console.error('eliminarMateriaPrima error:', err);
     res.status(500).json({ message: 'Error al eliminar materia prima' });
   }
 };
-
-
-
-
-
-
-
-
-
