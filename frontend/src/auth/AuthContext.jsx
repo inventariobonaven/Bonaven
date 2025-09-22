@@ -1,10 +1,12 @@
+// src/auth/AuthContext.jsx
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import api from '../api/client';
+import api, { loginFormUrlencoded, warmUp } from '../api/client';
 
 const AuthContext = createContext(null);
 const LS_AUTH = 'auth';
 const LS_TOKEN = 'token';
 
+/* ===== storage helpers ===== */
 function readAuth() {
   try {
     return JSON.parse(localStorage.getItem(LS_AUTH) || 'null');
@@ -17,10 +19,8 @@ function writeAuth(obj) {
   if (obj?.token) localStorage.setItem(LS_TOKEN, obj.token);
 }
 function clearAuth() {
-  try {
-    localStorage.removeItem(LS_AUTH);
-    localStorage.removeItem(LS_TOKEN);
-  } catch {}
+  localStorage.removeItem(LS_AUTH);
+  localStorage.removeItem(LS_TOKEN);
 }
 
 export function AuthProvider({ children }) {
@@ -28,56 +28,99 @@ export function AuthProvider({ children }) {
   const [auth, setAuth] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Arranque: rehidratar y verificar con /auth/me
+  // Arranque: rehidratar y verificar con /auth/me (sin botar por 503/Network Error)
   useEffect(() => {
     let mounted = true;
+
     (async () => {
       const saved = readAuth();
       if (!saved?.token) {
         if (mounted) setLoading(false);
         return;
       }
-      // pinta optimista
-      if (mounted)
+
+      // pinta lo guardado de inmediato
+      if (mounted) {
         setAuth({
           token: saved.token,
           user: saved.user,
-          permissions: saved.permissions || [],
+          permissions: Array.isArray(saved.permissions) ? saved.permissions : [],
         });
+      }
 
+      // intenta validar
       try {
-        // ⬇️ Muy importante: NO redirigir en 401 aquí; lo manejamos nosotros
-        const { data } = await api.get('/auth/me', { __skip401Redirect: true });
-        const next = {
-          token: saved.token,
-          user: data?.user || saved.user || null,
-          permissions: Array.isArray(data?.permissions)
-            ? data.permissions
-            : saved.permissions || [],
-        };
-        if (mounted) setAuth(next);
-        writeAuth(next);
-      } catch {
-        // token inválido/expirado
-        clearAuth();
-        if (mounted) setAuth(null);
+        await warmUp(); // despierta Render
+        let data = null;
+
+        // 2 reintentos suaves solo por 503/Network Error
+        for (let i = 0; i < 2 && !data; i++) {
+          try {
+            const res = await api.get('/auth/me');
+            data = res.data;
+          } catch (e) {
+            const status = e?.response?.status;
+            const net = e?.message === 'Network Error';
+            if (status === 401) throw e; // 401 sí invalida
+            if (!(status === 503 || net)) throw e; // otros errores, propaga
+            // backoff corto y reintenta
+            await new Promise((r) => setTimeout(r, 500 * (i + 1)));
+          }
+        }
+
+        if (data) {
+          const next = {
+            token: saved.token,
+            user: data?.user || saved.user || null,
+            permissions: Array.isArray(data?.permissions)
+              ? data.permissions
+              : saved.permissions || [],
+          };
+          if (mounted) setAuth(next);
+          writeAuth(next);
+        }
+      } catch (e) {
+        // Solo limpiar si es 401 (token inválido/expirado)
+        const status = e?.response?.status;
+        if (status === 401) {
+          clearAuth();
+          if (mounted) setAuth(null);
+        }
       } finally {
         if (mounted) setLoading(false);
       }
     })();
+
     return () => {
       mounted = false;
     };
   }, []);
 
-  // Acciones
+  /* ===== acciones ===== */
   async function login(usuario, contrasena) {
-    const { data } = await api.post('/auth/login', { usuario, contrasena });
+    await warmUp();
+
+    // reintentos sólo para 503/Network Error
+    let data = null;
+    for (let i = 0; i < 3 && !data; i++) {
+      try {
+        const res = await loginFormUrlencoded({ usuario, contrasena });
+        data = res.data;
+      } catch (e) {
+        const status = e?.response?.status;
+        const isTransient = status === 503 || e?.message === 'Network Error';
+        if (!isTransient) throw e;
+        await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+      }
+    }
+    if (!data) throw new Error('Servidor no disponible. Intenta de nuevo.');
+
     const next = {
       token: data?.token || '',
       user: data?.user || null,
       permissions: Array.isArray(data?.permissions) ? data.permissions : [],
     };
+
     writeAuth(next);
     setAuth(next);
     return next.user;
@@ -89,8 +132,8 @@ export function AuthProvider({ children }) {
     if (typeof window !== 'undefined') window.location.replace('/login');
   }
 
-  // Helpers
-  const role = String(auth?.user?.rol || '').toUpperCase(); // 'ADMIN' | 'PRODUCCION' | ''
+  /* ===== helpers ===== */
+  const role = String(auth?.user?.rol || '').toUpperCase();
   const isAdmin = role === 'ADMIN';
   const permissions = Array.isArray(auth?.permissions) ? auth.permissions : [];
   const has = (...keys) => keys.every((k) => permissions.includes(k));

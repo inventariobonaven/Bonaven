@@ -7,8 +7,9 @@ function buildApiBase(raw) {
   return /\/api$/i.test(root) ? root : `${root}/api`;
 }
 
-// ⚠️ VITE_API_URL debe apuntar al ROOT del backend (SIN /api)
+// VITE_API_URL debe apuntar al ROOT del backend (SIN /api)
 export const API_BASE = buildApiBase(import.meta.env.VITE_API_URL);
+export const ROOT_BASE = API_BASE.replace(/\/api$/i, '');
 
 /** ===== instancia axios ===== */
 const api = axios.create({
@@ -17,14 +18,14 @@ const api = axios.create({
   headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
 });
 
-// Debug: ver a dónde apunta en runtime
+/* Debug: ver a dónde está apuntando el frontend ya compilado */
 if (typeof window !== 'undefined') {
   window.API_BASE = API_BASE;
   // eslint-disable-next-line no-console
   console.log('[api] baseURL =', API_BASE);
 }
 
-/* ===== helpers de auth (localStorage) ===== */
+/* ===== helpers de auth (solo lectura/limpieza local) ===== */
 const LS_AUTH = 'auth';
 const LS_TOKEN = 'token';
 
@@ -36,7 +37,6 @@ function readAuthObj() {
   }
 }
 
-// Saca token y lo sanea
 function getToken() {
   const a = readAuthObj();
   let t = a?.token || localStorage.getItem(LS_TOKEN) || '';
@@ -54,12 +54,10 @@ function clearAuth() {
 }
 
 /* ===== interceptores ===== */
-/* ===== interceptores ===== */
 api.interceptors.request.use((config) => {
   const url = String(config.url || '');
-  // ⬇️ Solo el login va SIN token
-  const isLogin = url.includes('/auth/login');
-  if (!isLogin) {
+  const isAuthEndpoint = url.startsWith('/auth') || url.includes('/auth/');
+  if (!isAuthEndpoint) {
     const token = getToken();
     if (token) {
       config.headers = config.headers || {};
@@ -74,20 +72,14 @@ api.interceptors.response.use(
   (res) => res,
   (error) => {
     const status = error?.response?.status;
-    const cfg = error?.config || {};
     const onLogin = typeof window !== 'undefined' && window.location.pathname === '/login';
-    const hadAuth = !!cfg?.headers?.Authorization;
+    const hadAuth = !!error?.config?.headers?.Authorization; // solo si enviamos token
 
-    // ⬇️ Permite saltarse la redirección en llamadas marcadas (ej: /auth/me)
-    const skip = !!cfg.__skip401Redirect;
-
-    if (status === 401 && hadAuth && !onLogin && !skip) {
+    // Solo redirige en 401 reales con token (no por 503/Network Error)
+    if (status === 401 && hadAuth && !onLogin) {
       if (!redirecting) {
         redirecting = true;
-        try {
-          localStorage.removeItem('auth');
-          localStorage.removeItem('token');
-        } catch {}
+        clearAuth();
         const u = new URL('/login', window.location.origin);
         u.searchParams.set('expired', '1');
         window.location.replace(u.toString());
@@ -97,5 +89,23 @@ api.interceptors.response.use(
     return Promise.reject(error);
   },
 );
+
+/* ===== util: warm-up y login sin preflight ===== */
+
+// Despierta la instancia en Render (ignora errores)
+export async function warmUp() {
+  try {
+    await fetch(`${ROOT_BASE}/healthz`, { mode: 'cors', cache: 'no-store' });
+  } catch {}
+}
+
+// Login como x-www-form-urlencoded para evitar preflight (OPTIONS)
+export async function loginFormUrlencoded({ usuario, contrasena }) {
+  const body = new URLSearchParams({ usuario, contrasena });
+  return api.post('/auth/login', body.toString(), {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    transformRequest: [(d) => d],
+  });
+}
 
 export default api;

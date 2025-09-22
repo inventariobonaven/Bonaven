@@ -56,6 +56,7 @@ app.options(/.*/, cors(corsOptions));
 /* ----------- Middlewares ------------ */
 app.set('trust proxy', true); // Render/Vercel
 app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
 app.use((req, _res, next) => {
   console.log(`[API] ${req.method} ${req.url}`);
   next();
