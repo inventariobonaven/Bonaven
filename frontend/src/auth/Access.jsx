@@ -1,22 +1,20 @@
-// src/auth/Access.jsx
-import { Navigate } from "react-router-dom";
-import { useAuth } from "./AuthContext";
+import { Navigate } from 'react-router-dom';
+import { useAuth } from './AuthContext';
 
-/** Renderiza children si el usuario tiene el permiso; si no, fallback */
-export function Can({ perm, children, fallback = null }) {
-  const { has } = useAuth();
-  return has(perm) ? children : fallback;
+// Bloquea si no hay token; espera a que termine el loading
+export function RequireAuth({ children }) {
+  const { loading, token } = useAuth();
+  if (loading) return null; // aquí puedes poner un Splash si quieres
+  if (!token) return <Navigate to="/login" replace />;
+  return children;
 }
 
-/** Bloquea rutas para un rol concreto (ADMIN o PRODUCCION) */
-export function RequireRole({ role = "ADMIN", children }) {
-  const { roleApi, loading } = useAuth();
+// Bloquea si el rol no coincide; también espera loading
+export function RequireRole({ role = 'ADMIN', children }) {
+  const { loading, role: userRole } = useAuth();
   if (loading) return null;
-  if (String(roleApi).toUpperCase() !== String(role).toUpperCase()) {
+  if (String(userRole).toUpperCase() !== String(role).toUpperCase()) {
     return <Navigate to="/" replace />;
   }
   return children;
 }
-
-
-
