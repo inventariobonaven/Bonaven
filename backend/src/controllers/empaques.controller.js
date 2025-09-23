@@ -6,20 +6,34 @@ const ESTADOS = ['DISPONIBLE', 'RESERVADO', 'AGOTADO', 'VENCIDO', 'INACTIVO'];
 const validEstado = (s) => ESTADOS.includes(String(s || '').toUpperCase());
 const norm = (s) => String(s || '').trim();
 
-/** yyyy-mm-dd ó mm/dd/yyyy -> Date (00:00:00) */
-const toDate = (v) => {
+/** Fecha “solo día” → Date fijada a las 12:00 UTC para evitar corrimientos */
+function parseDateOnlyUTC(v) {
   if (!v) return null;
-  if (typeof v === 'string') {
-    const s = v.trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T00:00:00`);
-    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
-      const [mm, dd, yyyy] = s.split('/');
-      return new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
-    }
+
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    return new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate(), 12, 0, 0));
   }
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? null : d;
-};
+
+  const s = String(v).trim();
+
+  // "YYYY-MM-DD"
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  }
+
+  // "MM/DD/YYYY"
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+    const [mm, dd, yyyy] = s.split('/').map(Number);
+    return new Date(Date.UTC(yyyy, mm - 1, dd, 12, 0, 0));
+  }
+
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) {
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0));
+  }
+  return null;
+}
 
 const recalcStockMP = async (tx, mpId) => {
   const sum = await tx.lotes_materia_prima.aggregate({
@@ -189,8 +203,9 @@ exports.ingresarLote = async (req, res) => {
           proveedor_id: proveedor_id ?? null,
           codigo: norm(codigo),
           cantidad: String(cantidad),
-          fecha_ingreso: toDate(fecha_ingreso),
-          fecha_vencimiento: fecha_vencimiento ? toDate(fecha_vencimiento) : null,
+          // 🔒 Fechas “solo día” ancladas a UTC (12:00)
+          fecha_ingreso: parseDateOnlyUTC(fecha_ingreso),
+          fecha_vencimiento: fecha_vencimiento ? parseDateOnlyUTC(fecha_vencimiento) : null,
           estado: validEstado(estado) ? estado : 'DISPONIBLE',
         },
       });

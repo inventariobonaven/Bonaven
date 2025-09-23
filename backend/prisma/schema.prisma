@@ -128,8 +128,11 @@ model lotes_materia_prima {
   proveedor_id      Int?
   codigo            String     @db.VarChar(64)
   cantidad          Decimal    @db.Decimal(18, 3)
-  fecha_ingreso     DateTime   @db.Date
-  fecha_vencimiento DateTime?  @db.Date
+
+  // ⬇️ CAMBIO: de @db.Date a timestamp sin zona
+  fecha_ingreso     DateTime   @db.Timestamp(6)
+  fecha_vencimiento DateTime?  @db.Timestamp(6)
+
   estado            EstadoLote @default(DISPONIBLE)
 
   materias_primas materias_primas @relation(fields: [materia_prima_id], references: [id])
@@ -208,17 +211,20 @@ model lotes_producto_terminado {
   fecha_vencimiento DateTime?  @db.Date
   estado            EstadoLote @default(DISPONIBLE)
 
-  // Etapa del lote en el flujo (CONGELADO/EMPAQUE/HORNEO)
+  // Etapa del lote
   etapa             EtapaPT    @default(EMPAQUE)
 
   productos_terminados productos_terminados       @relation(fields: [producto_id], references: [id])
   movimientos          stock_producto_terminado[]
 
-  @@unique([producto_id, codigo], name: "uq_ptprod_codigo")
+  // ⬇️ NUEVA unicidad: por producto + código + etapa
+  @@unique([producto_id, codigo, etapa], name: "uq_ptprod_codigo_etapa")
+
+
+
   @@index([producto_id, estado])
-  // Índices para FIFO y filtros por etapa
-  @@index([producto_id, estado, fecha_vencimiento, fecha_ingreso], name: "idx_pt_fifo")
   @@index([producto_id, estado, etapa, fecha_ingreso])
+  @@index([producto_id, estado, fecha_vencimiento, fecha_ingreso], name: "idx_pt_fifo")
   @@index([codigo], name: "idx_pt_codigo")
 }
 
@@ -314,7 +320,7 @@ model trazabilidad_produccion {
   producciones        producciones?        @relation(fields: [produccion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
-/* === Mapeo Receta ↔ Producto (rendimiento y vencimiento) === */
+/* === Mapeo Receta ↔️ Producto (rendimiento y vencimiento) === */
 model receta_producto_map {
   id               Int                  @id @default(autoincrement())
   receta_id        Int
@@ -375,6 +381,3 @@ model detalles_venta {
   productos_terminados productos_terminados? @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   presentaciones       presentaciones?       @relation(fields: [presentacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
-
-
-

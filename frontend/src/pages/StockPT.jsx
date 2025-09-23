@@ -101,11 +101,12 @@ const emptyForm = {
   cantidad: '',
   fecha_ingreso: new Date().toISOString().slice(0, 10),
   fecha_vencimiento: '',
+  etapa_destino: 'EMPAQUE',
 };
 
 function LotePTForm({ productos, initial = emptyForm, onSubmit, submitting }) {
   const [form, setForm] = useState(initial);
-  useEffect(() => setForm(initial), [initial]);
+  useEffect(() => setForm({ ...emptyForm, ...initial }), [initial]);
 
   const prodOpts = useMemo(
     () => [...(Array.isArray(productos) ? productos : [])].sort(byNombre),
@@ -117,7 +118,8 @@ function LotePTForm({ productos, initial = emptyForm, onSubmit, submitting }) {
     String(form.codigo || '').trim().length >= 1 &&
     Number.isInteger(Number(form.cantidad)) &&
     Number(form.cantidad) > 0 &&
-    String(form.fecha_ingreso || '') !== '';
+    String(form.fecha_ingreso || '') !== '' &&
+    (form.etapa_destino === 'EMPAQUE' || form.etapa_destino === 'HORNEO');
 
   function handleChange(e) {
     const { name, value } = e.target;
@@ -132,7 +134,7 @@ function LotePTForm({ productos, initial = emptyForm, onSubmit, submitting }) {
       codigo: String(form.codigo).trim(),
       cantidad: String(Number(form.cantidad)), // entero
       fecha_ingreso: form.fecha_ingreso,
-      // solo mandamos vencimiento si viene lleno
+      etapa_destino: form.etapa_destino,
       ...(form.fecha_vencimiento ? { fecha_vencimiento: form.fecha_vencimiento } : {}),
     });
   }
@@ -190,6 +192,17 @@ function LotePTForm({ productos, initial = emptyForm, onSubmit, submitting }) {
             onChange={handleChange}
           />
         </div>
+
+        <div>
+          <label>Etapa destino</label>
+          <select name="etapa_destino" value={form.etapa_destino} onChange={handleChange} required>
+            <option value="EMPAQUE">Empaque (consume bolsas)</option>
+            <option value="HORNEO">Horneo (no consume bolsas)</option>
+          </select>
+          <div className="muted" style={{ marginTop: 4 }}>
+            Si eliges <b>Horneo</b> se permite cualquier cantidad y no se descuentan empaques.
+          </div>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
@@ -201,7 +214,7 @@ function LotePTForm({ productos, initial = emptyForm, onSubmit, submitting }) {
   );
 }
 
-/* ======= Editar (con ajuste de cantidad y paquetes) ======= */
+/* ======= Editar (con ajuste de cantidad, paquetes y ETAPA) ======= */
 function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
   const udsActuales = Math.round(Number(lote?.cantidad || 0));
   const uxe = Number(unidadesPorEmpaque || 0);
@@ -214,6 +227,7 @@ function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
     cantidadPkgs: uxe > 0 ? String(Math.floor(udsActuales / uxe)) : '',
     cantidadUd: uxe > 0 ? String(udsActuales % uxe) : String(udsActuales),
     motivo: '',
+    etapa: String(lote?.etapa || 'EMPAQUE'), // 👈 NUEVO
   });
 
   useEffect(() => {
@@ -226,6 +240,7 @@ function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
       cantidadPkgs: uxe > 0 ? String(Math.floor(uds / uxe)) : '',
       cantidadUd: uxe > 0 ? String(uds % uxe) : String(uds),
       motivo: '',
+      etapa: String(lote?.etapa || 'EMPAQUE'), // 👈 NUEVO
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lote?.id, uxe]);
@@ -270,9 +285,13 @@ function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
       // Si lo vaciaron explícitamente => null. Si no se tocó, no lo mandamos.
       updates.fecha_vencimiento = form.fecha_vencimiento ? form.fecha_vencimiento : null;
     }
+    // 👇 NUEVO: cambio de ETAPA
+    if (form.etapa !== String(lote?.etapa || '')) {
+      updates.etapa = form.etapa;
+    }
 
     onSubmit({
-      updates, // { codigo?, fecha_ingreso?, fecha_vencimiento? }
+      updates, // { codigo?, fecha_ingreso?, fecha_vencimiento?, etapa? }
       deltaCantidad: delta, // +/- (0 si no cambió)
       motivo: form.motivo?.trim() || undefined,
       targetUd, // unidades finales
@@ -321,6 +340,16 @@ function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
             value={form.fecha_vencimiento}
             onChange={handleChange}
           />
+        </div>
+
+        {/* ---- Etapa ---- */}
+        <div>
+          <label>Etapa</label>
+          <select name="etapa" value={form.etapa} onChange={handleChange}>
+            <option value="EMPAQUE">Empaque</option>
+            <option value="HORNEO">Horneo</option>
+            <option value="CONGELADO">Congelado</option>
+          </select>
         </div>
 
         {/* ---- Ajuste de cantidad ---- */}

@@ -3,11 +3,10 @@ const prisma = require('../database/prismaClient');
 
 /* ------------ helpers ------------ */
 const toBool = (v) => /^(1|true|yes|on)$/i.test(String(v || '').trim());
+const norm = (s) => String(s || '').trim();
 
-/**
- * Crear materia prima
- */
-exports.crearMateriaPrima = async (req, res) => {
+/* ========== Crear ========== */
+async function crearMateriaPrima(req, res) {
   try {
     const { nombre, tipo, unidad_medida, estado } = req.body;
 
@@ -37,17 +36,18 @@ exports.crearMateriaPrima = async (req, res) => {
     console.error('crearMateriaPrima error:', err);
     res.status(500).json({ message: 'Error al crear materia prima' });
   }
-};
+}
 
+/* ========== Listar ========== */
 /**
- * Listar materias primas
+ * GET /materias-primas
  * Soporta:
  *  - ?estado=true|false
  *  - ?q=texto libre
  *  - ?tipo=fragmento (insensitive)
  *  - ?sinEmpaques=1  → excluye tipo EMPAQUE
  */
-exports.listarMateriasPrimas = async (req, res) => {
+async function listarMateriasPrimas(req, res) {
   try {
     const { estado, q, tipo, sinEmpaques } = req.query;
 
@@ -63,6 +63,7 @@ exports.listarMateriasPrimas = async (req, res) => {
 
     if (toBool(sinEmpaques)) {
       AND.push({ NOT: { tipo: { equals: 'EMPAQUE', mode: 'insensitive' } } });
+      // Si prefieres exacto sin mode: AND.push({ NOT: { tipo: 'EMPAQUE' } });
     }
 
     if (q?.trim()) {
@@ -85,12 +86,10 @@ exports.listarMateriasPrimas = async (req, res) => {
     console.error('listarMateriasPrimas error:', err);
     res.status(500).json({ message: 'Error al listar materias primas' });
   }
-};
+}
 
-/**
- * Obtener materia prima por ID
- */
-exports.obtenerMateriaPrima = async (req, res) => {
+/* ========== Obtener por ID ========== */
+async function obtenerMateriaPrima(req, res) {
   try {
     const id = parseInt(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ message: 'ID inválido' });
@@ -103,12 +102,10 @@ exports.obtenerMateriaPrima = async (req, res) => {
     console.error('obtenerMateriaPrima error:', err);
     res.status(500).json({ message: 'Error al obtener la materia prima' });
   }
-};
+}
 
-/**
- * Obtener solo el stock de una materia prima
- */
-exports.obtenerStock = async (req, res) => {
+/* ========== Obtener stock ========== */
+async function obtenerStock(req, res) {
   try {
     const id = parseInt(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ message: 'ID inválido' });
@@ -125,12 +122,10 @@ exports.obtenerStock = async (req, res) => {
     console.error('obtenerStock error:', err);
     res.status(500).json({ message: 'Error al obtener stock' });
   }
-};
+}
 
-/**
- * Actualizar materia prima
- */
-exports.actualizarMateriaPrima = async (req, res) => {
+/* ========== Actualizar ========== */
+async function actualizarMateriaPrima(req, res) {
   try {
     const id = parseInt(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ message: 'ID inválido' });
@@ -165,12 +160,10 @@ exports.actualizarMateriaPrima = async (req, res) => {
     console.error('actualizarMateriaPrima error:', err);
     res.status(500).json({ message: 'Error al actualizar materia prima' });
   }
-};
+}
 
-/**
- * Cambiar estado
- */
-exports.cambiarEstadoMateriaPrima = async (req, res) => {
+/* ========== Cambiar estado ========== */
+async function cambiarEstadoMateriaPrima(req, res) {
   try {
     const id = parseInt(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ message: 'ID inválido' });
@@ -190,14 +183,14 @@ exports.cambiarEstadoMateriaPrima = async (req, res) => {
     console.error('cambiarEstadoMateriaPrima error:', err);
     res.status(500).json({ message: 'Error al cambiar estado' });
   }
-};
+}
 
+/* ========== Eliminar ========== */
 /**
- * Eliminar materia prima
- * - ?hard=true  -> intenta borrar definitivamente (valida dependencias)
+ * - ?hard=true  -> borrado definitivo (valida dependencias)
  * - por defecto -> soft delete (estado=false)
  */
-exports.eliminarMateriaPrima = async (req, res) => {
+async function eliminarMateriaPrima(req, res) {
   try {
     const id = parseInt(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ message: 'ID inválido' });
@@ -206,7 +199,7 @@ exports.eliminarMateriaPrima = async (req, res) => {
     const materia = await prisma.materias_primas.findUnique({ where: { id } });
     if (!materia) return res.status(404).json({ message: 'Materia prima no encontrada' });
 
-    if (hard === 'true') {
+    if (String(hard).toLowerCase() === 'true') {
       const tieneLotes = await prisma.lotes_materia_prima.findFirst({
         where: { materia_prima_id: id },
       });
@@ -247,4 +240,15 @@ exports.eliminarMateriaPrima = async (req, res) => {
     console.error('eliminarMateriaPrima error:', err);
     res.status(500).json({ message: 'Error al eliminar materia prima' });
   }
+}
+
+/* ========== Exports explícitos ========== */
+module.exports = {
+  crearMateriaPrima,
+  listarMateriasPrimas,
+  obtenerMateriaPrima,
+  obtenerStock,
+  actualizarMateriaPrima,
+  cambiarEstadoMateriaPrima,
+  eliminarMateriaPrima,
 };
