@@ -832,6 +832,71 @@ exports.actualizarLote = async (req, res) => {
   }
 };
 
+// === NUEVO: liberar unidades desde CONGELADO (descarga como LIBERACION) ===
+exports.liberarCongelado = async (req, res) => {
+  try {
+    const { lote_id, cantidad, fecha } = req.body;
+    const id = Number(lote_id || 0);
+    const qty = Math.round(Number(cantidad || 0));
+
+    if (!id) return res.status(400).json({ message: 'lote_id requerido' });
+    if (!(qty > 0)) return res.status(400).json({ message: 'cantidad debe ser > 0' });
+
+    const out = await prisma.$transaction(async (tx) => {
+      const lote = await tx.lotes_producto_terminado.findUnique({
+        where: { id },
+        select: { id: true, producto_id: true, etapa: true, estado: true, cantidad: true },
+      });
+      if (!lote) throw new Error('Lote no encontrado');
+      if (String(lote.etapa).toUpperCase() !== 'CONGELADO') {
+        throw new Error('Solo se puede liberar desde la etapa CONGELADO');
+      }
+      if (lote.estado !== 'DISPONIBLE') {
+        throw new Error('El lote no está disponible');
+      }
+
+      const dispM = toM(lote.cantidad);
+      const usarM = toM(qty);
+      if (usarM > dispM) throw new Error('Cantidad a liberar mayor al disponible');
+
+      const when = toDateOrNow(fecha);
+
+      // Movimiento SALIDA con motivo LIBERACION
+      await tx.stock_producto_terminado.create({
+        data: {
+          producto_id: lote.producto_id,
+          lote_id: lote.id,
+          tipo: 'SALIDA',
+          cantidad: fromM(usarM),
+          fecha: when,
+          motivo: 'LIBERACION',
+          ref_tipo: 'LIBERACION',
+          ref_id: lote.id,
+        },
+      });
+
+      const nuevaM = subM(dispM, usarM);
+      const upd = await tx.lotes_producto_terminado.update({
+        where: { id: lote.id },
+        data: { cantidad: fromM(nuevaM), estado: nuevaM === 0 ? 'AGOTADO' : 'DISPONIBLE' },
+      });
+
+      // No hace falta recalcStockPTReady: CONGELADO no suma al stock vendible
+      return {
+        lote_id: upd.id,
+        producto_id: upd.producto_id,
+        cantidad_liberada: String(qty),
+        cantidad_restante: upd.cantidad,
+      };
+    });
+
+    res.json({ message: 'Unidades liberadas', ...out });
+  } catch (e) {
+    console.error('[pt.liberarCongelado]', e);
+    res.status(400).json({ message: e.message || 'Error liberando unidades' });
+  }
+};
+
 /* --- TOGGLE ESTADO (acepta toggle vacío o set explícito) --- */
 exports.toggleEstadoLote = async (req, res) => {
   try {

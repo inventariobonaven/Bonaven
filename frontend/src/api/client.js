@@ -3,7 +3,7 @@ import axios from 'axios';
 
 /** Normaliza la URL del backend y garantiza el sufijo /api */
 function buildApiBase(raw) {
-  const root = (raw || 'http://localhost:3001').replace(/\/+$/, ''); // sin slash final
+  const root = (raw || 'http://localhost:3001').replace(/\/+$/, '');
   return /\/api$/i.test(root) ? root : `${root}/api`;
 }
 
@@ -18,14 +18,14 @@ const api = axios.create({
   headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
 });
 
-/* Debug: ver a dónde está apuntando el frontend ya compilado */
+/* Debug */
 if (typeof window !== 'undefined') {
   window.API_BASE = API_BASE;
   // eslint-disable-next-line no-console
   console.log('[api] baseURL =', API_BASE);
 }
 
-/* ===== helpers de auth (solo lectura/limpieza local) ===== */
+/* ===== auth local ===== */
 const LS_AUTH = 'auth';
 const LS_TOKEN = 'token';
 
@@ -36,8 +36,7 @@ function readAuthObj() {
     return null;
   }
 }
-
-function getToken() {
+export function getToken() {
   const a = readAuthObj();
   let t = a?.token || localStorage.getItem(LS_TOKEN) || '';
   if (!t) return '';
@@ -45,8 +44,7 @@ function getToken() {
     .replace(/[\r\n]+/g, '')
     .trim();
 }
-
-function clearAuth() {
+export function clearAuth() {
   try {
     localStorage.removeItem(LS_AUTH);
     localStorage.removeItem(LS_TOKEN);
@@ -56,8 +54,10 @@ function clearAuth() {
 /* ===== interceptores ===== */
 api.interceptors.request.use((config) => {
   const url = String(config.url || '');
-  const isAuthEndpoint = url.startsWith('/auth') || url.includes('/auth/');
-  if (!isAuthEndpoint) {
+  // Solo NO enviamos token en /auth/login; en /auth/me SÍ debe ir
+  const isLogin = url.includes('/auth/login');
+
+  if (!isLogin) {
     const token = getToken();
     if (token) {
       config.headers = config.headers || {};
@@ -72,34 +72,35 @@ api.interceptors.response.use(
   (res) => res,
   (error) => {
     const status = error?.response?.status;
+    const url = String(error?.config?.url || '');
     const onLogin = typeof window !== 'undefined' && window.location.pathname === '/login';
-    const hadAuth = !!error?.config?.headers?.Authorization; // solo si enviamos token
+    const hadAuth = !!error?.config?.headers?.Authorization;
 
-    // Solo redirige en 401 reales con token (no por 503/Network Error)
+    // Redirige sólo si es 401 real con token y NO es /auth/me
     if (status === 401 && hadAuth && !onLogin) {
-      if (!redirecting) {
-        redirecting = true;
-        clearAuth();
-        const u = new URL('/login', window.location.origin);
-        u.searchParams.set('expired', '1');
-        window.location.replace(u.toString());
+      const isAuthMe = url.includes('/auth/me');
+      if (!isAuthMe) {
+        if (!redirecting) {
+          redirecting = true;
+          clearAuth();
+          const u = new URL('/login', window.location.origin);
+          u.searchParams.set('expired', '1');
+          window.location.replace(u.toString());
+        }
+        return;
       }
-      return;
     }
     return Promise.reject(error);
   },
 );
 
-/* ===== util: warm-up y login sin preflight ===== */
-
-// Despierta la instancia en Render (ignora errores)
+/* ===== util ===== */
 export async function warmUp() {
   try {
     await fetch(`${ROOT_BASE}/healthz`, { mode: 'cors', cache: 'no-store' });
   } catch {}
 }
 
-// Login como x-www-form-urlencoded para evitar preflight (OPTIONS)
 export async function loginFormUrlencoded({ usuario, contrasena }) {
   const body = new URLSearchParams({ usuario, contrasena });
   return api.post('/auth/login', body.toString(), {

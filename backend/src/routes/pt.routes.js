@@ -14,6 +14,9 @@ api.post('/salidas', ctrl.salidaPT);
 // MOVER etapa (CONGELADO -> EMPAQUE | HORNEO)
 api.patch('/lotes/:id/etapa', ctrl.moverEtapa);
 
+// 🔸 NUEVO: liberar unidades desde CONGELADO
+api.post('/liberacion', ctrl.liberarCongelado);
+
 // Listados
 api.get('/lotes', ctrl.listarLotesPT);
 api.get('/movimientos', ctrl.listarMovimientosPT);
@@ -27,9 +30,12 @@ api.delete('/lotes/:id', ctrl.eliminarLote);
 const alias = Router();
 
 // NOMBRES que usa tu UI:
-alias.post('/ingreso', ctrl.ingresarPT);         // singular
-alias.post('/salida', ctrl.salidaPT);            // singular
+alias.post('/ingreso', ctrl.ingresarPT); // singular
+alias.post('/salida', ctrl.salidaPT); // singular
 alias.patch('/lotes/:id/etapa', ctrl.moverEtapa);
+
+// 🔸 NUEVO alias de liberación
+alias.post('/liberacion', ctrl.liberarCongelado);
 
 alias.get('/lotes', ctrl.listarLotesPT);
 alias.get('/movimientos', ctrl.listarMovimientosPT);
@@ -39,6 +45,3 @@ alias.patch('/lotes/:id/estado', ctrl.toggleEstadoLote);
 alias.delete('/lotes/:id', ctrl.eliminarLote);
 
 module.exports = { api, alias };
-
-
-

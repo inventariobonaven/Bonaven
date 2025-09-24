@@ -28,64 +28,40 @@ export function AuthProvider({ children }) {
   const [auth, setAuth] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Arranque: rehidratar y verificar con /auth/me (sin botar por 503/Network Error)
+  // Rehidratación segura: si hay token, SIEMPRE validamos con /auth/me.
+  // No pintamos user desde localStorage antes de validar.
   useEffect(() => {
     let mounted = true;
 
     (async () => {
       const saved = readAuth();
-      if (!saved?.token) {
-        if (mounted) setLoading(false);
+      const savedToken = saved?.token || localStorage.getItem(LS_TOKEN) || '';
+
+      if (!savedToken) {
+        if (mounted) {
+          setAuth(null);
+          setLoading(false);
+        }
         return;
       }
 
-      // pinta lo guardado de inmediato
-      if (mounted) {
-        setAuth({
-          token: saved.token,
-          user: saved.user,
-          permissions: Array.isArray(saved.permissions) ? saved.permissions : [],
-        });
-      }
-
-      // intenta validar
       try {
-        await warmUp(); // despierta Render
-        let data = null;
-
-        // 2 reintentos suaves solo por 503/Network Error
-        for (let i = 0; i < 2 && !data; i++) {
-          try {
-            const res = await api.get('/auth/me');
-            data = res.data;
-          } catch (e) {
-            const status = e?.response?.status;
-            const net = e?.message === 'Network Error';
-            if (status === 401) throw e; // 401 sí invalida
-            if (!(status === 503 || net)) throw e; // otros errores, propaga
-            // backoff corto y reintenta
-            await new Promise((r) => setTimeout(r, 500 * (i + 1)));
-          }
-        }
-
-        if (data) {
-          const next = {
-            token: saved.token,
-            user: data?.user || saved.user || null,
-            permissions: Array.isArray(data?.permissions)
-              ? data.permissions
-              : saved.permissions || [],
-          };
-          if (mounted) setAuth(next);
+        await warmUp(); // opcional (Render)
+        // Si /auth/me devuelve 401, nuestro interceptor NO redirige (por la excepción), aquí lo manejamos.
+        const res = await api.get('/auth/me');
+        const next = {
+          token: savedToken,
+          user: res?.data?.user || null,
+          permissions: Array.isArray(res?.data?.permissions) ? res.data.permissions : [],
+        };
+        if (mounted) {
+          setAuth(next);
           writeAuth(next);
         }
       } catch (e) {
-        // Solo limpiar si es 401 (token inválido/expirado)
-        const status = e?.response?.status;
-        if (status === 401) {
-          clearAuth();
-          if (mounted) setAuth(null);
-        }
+        // Cualquier fallo invalida sesión (401, CORS, Network Error, 5xx).
+        clearAuth();
+        if (mounted) setAuth(null);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -100,8 +76,8 @@ export function AuthProvider({ children }) {
   async function login(usuario, contrasena) {
     await warmUp();
 
-    // reintentos sólo para 503/Network Error
     let data = null;
+    // reintentos suaves solo para 503/Network Error
     for (let i = 0; i < 3 && !data; i++) {
       try {
         const res = await loginFormUrlencoded({ usuario, contrasena });
@@ -110,7 +86,7 @@ export function AuthProvider({ children }) {
         const status = e?.response?.status;
         const isTransient = status === 503 || e?.message === 'Network Error';
         if (!isTransient) throw e;
-        await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+        await new Promise((r) => setTimeout(r, 600 * (i + 1)));
       }
     }
     if (!data) throw new Error('Servidor no disponible. Intenta de nuevo.');
