@@ -1,5 +1,5 @@
 // src/pages/Producciones.jsx
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import api from '../api/client';
 
 /* ===== UI ===== */
@@ -46,24 +46,42 @@ function toSmall(qty, baseUnit) {
   return { value: n, unit: 'ud' };
 }
 
-/* ===== Popover (posicionamiento inteligente) ===== */
-function Popover({ open, anchorRef, children, onClose, preferredWidth = 420, margin = 8 }) {
-  const popRef = useRef(null);
-  const [pos, setPos] = useState({ top: 0, left: 0, width: preferredWidth });
+/* ===== Helpers de fecha/hora (evitar “día -1”) ===== */
+const DATE_LOCALE = 'es-CO';
 
-  // Cerrar con click afuera
+function fmtFecha(value) {
+  if (!value) return '—';
+  const s = String(value);
+
+  // Caso 1: viene como "YYYY-MM-DD"
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+
+  // Caso 2: ISO con hora (ej. "2025-09-24T00:00:00.000Z")
+  const d = new Date(s);
+  if (isNaN(d)) return s;
+  // Mostrar en UTC para no correrse por zona horaria
+  return d.toLocaleDateString(DATE_LOCALE, { timeZone: 'UTC' });
+}
+
+function fmtHora(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (isNaN(d)) return null;
+  return d.toLocaleTimeString(DATE_LOCALE, { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+/* ===== Modal centrado (overlay) ===== */
+function CenterModal({ open, title, onClose, children, width = 720 }) {
   useEffect(() => {
-    function onDoc(e) {
-      if (!open) return;
-      if (anchorRef?.current?.contains(e.target)) return;
-      if (popRef?.current?.contains(e.target)) return;
-      onClose?.();
-    }
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [open, onClose, anchorRef]);
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev || '';
+    };
+  }, [open]);
 
-  // Cerrar con Escape
   useEffect(() => {
     function onKey(e) {
       if (open && e.key === 'Escape') onClose?.();
@@ -72,53 +90,52 @@ function Popover({ open, anchorRef, children, onClose, preferredWidth = 420, mar
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  // Recalcular posición al abrir, redimensionar o hacer scroll
-  useEffect(() => {
-    function recalc() {
-      if (!open) return;
-      const rect = anchorRef?.current?.getBoundingClientRect?.();
-      if (!rect) return;
-
-      const vw = window.innerWidth;
-      const width = Math.min(preferredWidth, vw - margin * 2);
-
-      // Debajo del anchor, con límites a los bordes
-      const top = (rect.bottom ?? 0) + 6;
-      const rawLeft = rect.left ?? margin;
-      const left = Math.max(margin, Math.min(rawLeft, vw - margin - width));
-
-      setPos({ top, left, width });
-    }
-    recalc();
-    window.addEventListener('resize', recalc);
-    window.addEventListener('scroll', recalc, true);
-    return () => {
-      window.removeEventListener('resize', recalc);
-      window.removeEventListener('scroll', recalc, true);
-    };
-  }, [open, anchorRef, preferredWidth, margin]);
-
   if (!open) return null;
 
   return (
     <div
-      ref={popRef}
-      className="card"
+      onClick={onClose}
       style={{
         position: 'fixed',
-        top: pos.top,
-        left: pos.left,
+        inset: 0,
         zIndex: 9999,
-        width: pos.width,
-        maxWidth: '90vw',
-        maxHeight: '60vh',
-        overflow: 'auto',
-        boxShadow: '0 6px 24px rgba(0,0,0,0.12)',
+        background: 'rgba(0,0,0,0.35)',
+        display: 'grid',
+        placeItems: 'center',
+        padding: 12,
       }}
-      role="dialog"
-      aria-modal="true"
     >
-      {children}
+      <div
+        className="card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        style={{
+          width: `min(${width}px, 96vw)`,
+          maxHeight: '80vh',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
+          background: '#fff',
+        }}
+      >
+        <div
+          style={{
+            padding: '12px 16px',
+            borderBottom: '1px solid var(--border)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <h3 style={{ margin: 0 }}>{title}</h3>
+          <button className="btn-outline" onClick={onClose} style={{ width: 'auto' }}>
+            ✕
+          </button>
+        </div>
+        <div style={{ padding: 12, overflow: 'auto' }}>{children}</div>
+      </div>
     </div>
   );
 }
@@ -130,74 +147,72 @@ function InsumosContent({ data, loading }) {
         Cargando…
       </div>
     );
-  if (!data || data.length === 0) {
+  if (!data || data.length === 0)
     return (
       <div className="muted" style={{ padding: 8 }}>
         No hay insumos consumidos
       </div>
     );
-  }
 
   return (
-    <div style={{ padding: 8 }}>
-      <div style={{ fontWeight: 600, marginBottom: 8 }}>Materias primas usadas</div>
-      <div style={{ display: 'grid', gap: 8 }}>
-        {data.map((mp) => {
-          const small = toSmall(mp.total, mp.unidad_base);
-          return (
-            <div key={mp.materia_prima_id} className="card" style={{ padding: 8 }}>
-              <div
-                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}
-              >
-                <div>
-                  <strong>{mp.nombre}</strong>
-                  <div className="muted">Unidad base: {mp.unidad_base}</div>
-                </div>
-                <div>
-                  <strong>
-                    {fmtDec(small.value)} {small.unit}
-                  </strong>
-                </div>
+    <div style={{ display: 'grid', gap: 8 }}>
+      {data.map((mp) => {
+        const small = toSmall(mp.total, mp.unidad_base);
+        return (
+          <div key={mp.materia_prima_id} className="card" style={{ padding: 8 }}>
+            <div
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}
+            >
+              <div>
+                <strong>{mp.nombre}</strong>
+                <div className="muted">Unidad base: {mp.unidad_base}</div>
               </div>
-
-              {Array.isArray(mp.detalle) && mp.detalle.length > 0 && (
-                <div style={{ marginTop: 8 }}>
-                  <div className="muted" style={{ marginBottom: 4 }}>
-                    Lotes:
-                  </div>
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th style={{ width: 90 }}>Lote</th>
-                        <th>Vence</th>
-                        <th style={{ textAlign: 'right' }}>Usado</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {mp.detalle.map((d, i) => {
-                        const s = toSmall(d.cantidad, mp.unidad_base);
-                        return (
-                          <tr key={`${mp.materia_prima_id}-${d.lote_id}-${i}`}>
-                            <td>#{d.lote_codigo ? d.lote_codigo : `#${d.lote_id}`}</td>
-                            <td>
-                              {d.fecha_vencimiento
-                                ? new Date(d.fecha_vencimiento).toLocaleDateString()
-                                : '-'}
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              {fmtDec(s.value)} {s.unit}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <div>
+                <strong>
+                  {fmtDec(small.value)} {small.unit}
+                </strong>
+              </div>
             </div>
-          );
-        })}
-      </div>
+
+            {!!(mp.detalle || []).length && (
+              <div style={{ marginTop: 8 }}>
+                <div className="muted" style={{ marginBottom: 4 }}>
+                  Lotes:
+                </div>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 100 }}>Lote</th>
+                      <th>Vence</th>
+                      <th style={{ textAlign: 'right' }}>Usado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mp.detalle.map((d, i) => {
+                      const s = toSmall(d.cantidad, mp.unidad_base);
+                      return (
+                        <tr key={`${mp.materia_prima_id}-${d.lote_id}-${i}`}>
+                          <td>
+                            {d.lote_codigo
+                              ? `#${d.lote_codigo}`
+                              : d.lote_id
+                                ? `#${d.lote_id}`
+                                : '—'}
+                          </td>
+                          <td>{d.fecha_vencimiento ? fmtFecha(d.fecha_vencimiento) : '—'}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            {fmtDec(s.value)} {s.unit}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -223,11 +238,11 @@ export default function Producciones() {
 
   const [toast, setToast] = useState({ type: 'success', message: '' });
 
-  // popover/caché
-  const [openPopId, setOpenPopId] = useState(null);
+  // Modal de insumos + caché
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalFor, setModalFor] = useState(null); // row
   const [insumosCache, setInsumosCache] = useState(new Map());
-  const [loadingInsumosId, setLoadingInsumosId] = useState(null);
-  const anchorRefs = useRef({}); // { [prodId]: { current: HTMLElement } }
+  const [loadingInsumos, setLoadingInsumos] = useState(false);
 
   async function loadRecetas() {
     setLoadingRecetas(true);
@@ -261,7 +276,7 @@ export default function Producciones() {
       setTotal(Number(data?.total || rows.length || 0));
       setPage(Number(data?.page || customPage));
       setPageSize(Number(data?.pageSize || pageSize));
-      setOpenPopId(null);
+      setModalOpen(false);
     } catch (e) {
       setItems([]);
       setTotal(0);
@@ -277,6 +292,7 @@ export default function Producciones() {
   useEffect(() => {
     loadRecetas();
     loadProducciones(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function resetFilters() {
@@ -284,25 +300,24 @@ export default function Producciones() {
     setHasta('');
     setRecetaId('');
     setQ('');
-    setOpenPopId(null);
+    setModalOpen(false);
     loadProducciones(1);
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  async function toggleInsumos(prodId) {
-    const nextOpen = openPopId === prodId ? null : prodId;
-    setOpenPopId(nextOpen);
-    if (!nextOpen) return;
+  async function openInsumos(row) {
+    setModalFor(row);
+    setModalOpen(true);
 
-    if (!insumosCache.has(prodId)) {
+    if (!insumosCache.has(row.id)) {
       try {
-        setLoadingInsumosId(prodId);
-        const { data } = await api.get(`/produccion/${prodId}/insumos`);
-        const asArray = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+        setLoadingInsumos(true);
+        const { data } = await api.get(`/produccion/${row.id}/insumos`);
+        const arr = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
         setInsumosCache((m) => {
           const copy = new Map(m);
-          copy.set(prodId, asArray);
+          copy.set(row.id, arr);
           return copy;
         });
       } catch (e) {
@@ -311,7 +326,7 @@ export default function Producciones() {
           message: e?.response?.data?.message || 'No se pudieron cargar los insumos',
         });
       } finally {
-        setLoadingInsumosId(null);
+        setLoadingInsumos(false);
       }
     }
   }
@@ -337,12 +352,14 @@ export default function Producciones() {
         >
           <input
             type="date"
+            lang="es-CO"
             value={desde}
             onChange={(e) => setDesde(e.target.value)}
             title="Desde"
           />
           <input
             type="date"
+            lang="es-CO"
             value={hasta}
             onChange={(e) => setHasta(e.target.value)}
             title="Hasta"
@@ -386,7 +403,7 @@ export default function Producciones() {
         </div>
 
         {/* Tabla */}
-        <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 12, overflowX: 'auto' }}>
           <table className="table">
             <thead>
               <tr>
@@ -422,15 +439,9 @@ export default function Producciones() {
                   const rpb = Number(rec?.rendimiento_por_batch || 1);
                   const salida = rpb * Number(p.cantidad_producida || 0);
 
-                  const fechaStr = p.fecha ? new Date(p.fecha).toLocaleDateString() : '-';
-                  const hi = p.hora_inicio ? new Date(p.hora_inicio).toLocaleTimeString() : null;
-                  const hf = p.hora_fin ? new Date(p.hora_fin).toLocaleTimeString() : null;
-
-                  if (!anchorRefs.current[p.id]) anchorRefs.current[p.id] = { current: null };
-
-                  const isOpen = openPopId === p.id;
-                  const loadingThis = loadingInsumosId === p.id;
-                  const insumos = insumosCache.get(p.id);
+                  const fechaStr = fmtFecha(p.fecha);
+                  const hi = fmtHora(p.hora_inicio);
+                  const hf = fmtHora(p.hora_fin);
 
                   return (
                     <tr key={p.id}>
@@ -465,6 +476,7 @@ export default function Producciones() {
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
                         }}
+                        title={p.observacion || ''}
                       >
                         {p.observacion || '—'}
                       </td>
@@ -472,20 +484,11 @@ export default function Producciones() {
                         <button
                           className="btn-outline"
                           style={{ width: 'auto' }}
-                          ref={(el) => (anchorRefs.current[p.id].current = el)}
-                          onClick={() => toggleInsumos(p.id)}
+                          onClick={() => openInsumos(p)}
                           title="Ver insumos usados"
                         >
                           🧪 Insumos
                         </button>
-
-                        <Popover
-                          open={isOpen}
-                          anchorRef={anchorRefs.current[p.id]}
-                          onClose={() => setOpenPopId(null)}
-                        >
-                          <InsumosContent data={insumos} loading={loadingThis && !insumos} />
-                        </Popover>
                       </td>
                     </tr>
                   );
@@ -505,7 +508,8 @@ export default function Producciones() {
             }}
           >
             <div className="muted">
-              {total} registro{total === 1 ? '' : 's'} · Página {page} / {totalPages}
+              {total} registro{total === 1 ? '' : 's'} · Página {page} /{' '}
+              {Math.max(1, Math.ceil(total / pageSize))}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button
@@ -519,7 +523,7 @@ export default function Producciones() {
               <button
                 className="btn-outline"
                 style={{ width: 'auto' }}
-                disabled={loading || page >= totalPages}
+                disabled={loading || page >= Math.max(1, Math.ceil(total / pageSize))}
                 onClick={() => loadProducciones(page + 1)}
               >
                 Siguiente ▶️
@@ -528,6 +532,22 @@ export default function Producciones() {
           </div>
         </div>
       </div>
+
+      {/* Modal centrado de Insumos */}
+      <CenterModal
+        open={modalOpen}
+        title={
+          modalFor
+            ? `Insumos de producción #${modalFor.id} · ${modalFor?.recetas?.nombre || ''}`
+            : 'Insumos'
+        }
+        onClose={() => setModalOpen(false)}
+      >
+        <InsumosContent
+          data={modalFor ? insumosCache.get(modalFor.id) : []}
+          loading={loadingInsumos && !(modalFor && insumosCache.has(modalFor.id))}
+        />
+      </CenterModal>
 
       <Toast
         type={toast.type}

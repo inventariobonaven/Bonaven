@@ -7,12 +7,47 @@ const { descontarFIFO, simularFIFO } = require('../services/fifo.services');
 const TX_OPTS = { timeout: 45000, maxWait: 10000 };
 
 /* ===== Helpers ===== */
+
+/** Ancla una fecha "solo día" a las 12:00 UTC para evitar desfases por zona horaria. */
+function parseDateOnlyUTC(v) {
+  if (!v) return null;
+
+  if (v instanceof Date && !isNaN(v)) {
+    return new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate(), 12, 0, 0, 0));
+  }
+
+  const s = String(v).trim();
+
+  // "YYYY-MM-DD"
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d, 12, 0, 0, 0));
+  }
+
+  // "MM/DD/YYYY" (defensivo)
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+    const [mm, dd, yyyy] = s.split('/').map(Number);
+    return new Date(Date.UTC(yyyy, mm - 1, dd, 12, 0, 0, 0));
+  }
+
+  // ISO u otros
+  const d = new Date(s);
+  if (!isNaN(d)) {
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0, 0));
+  }
+  return null;
+}
+
+/** Construye un Date local con la hora HH:mm sobre una fecha anclada a mediodía UTC. */
 function buildDateWithTime(fechaStr, hhmm) {
-  const base = fechaStr ? new Date(fechaStr) : new Date();
+  const base = fechaStr ? parseDateOnlyUTC(fechaStr) : parseDateOnlyUTC(new Date());
   const [h = '0', m = '0'] = String(hhmm || '').split(':');
+  // setHours usa la zona local; como la base está anclada a 12:00Z, no cambia el "día lógico".
   base.setHours(Number(h), Number(m), 0, 0);
   return base;
 }
+
+/** Parsea "HH:mm" relativo a una fecha; si viene ISO completo, lo respeta. */
 function parseDateOrTime(fechaStr, isoOrTime) {
   if (!isoOrTime) return null;
   const val = String(isoOrTime);
@@ -22,22 +57,34 @@ function parseDateOrTime(fechaStr, isoOrTime) {
   }
   return buildDateWithTime(fechaStr, val);
 }
+
 const toDec = (x) => {
   if (x instanceof Prisma.Decimal) return x;
   if (x === null || x === undefined) return new Prisma.Decimal('0');
   if (typeof x === 'string') return new Prisma.Decimal(x);
   return new Prisma.Decimal(Number(x).toFixed(3));
 };
+
 function yyyymmdd(d) {
+  // usamos hora local; al estar anclado a 12:00Z, coincidirá con el día lógico en usos normales
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}${m}${day}`;
 }
+
 function addDays(date, days) {
   const d = new Date(date);
   d.setDate(d.getDate() + Number(days || 0));
   return d;
+}
+
+/** Límites de día en UTC para filtros inclusivos */
+function startOfUTCDate(d) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+}
+function endOfUTCDate(d) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999));
 }
 
 /* Etapas vendibles (suman a stock_total) */
@@ -117,8 +164,8 @@ async function registrarProduccion(req, res) {
         });
       }
 
-      // 0) Preparar horas y duración (OBLIGATORIAS)
-      const fechaProd = fecha ? new Date(fecha) : new Date();
+      // 0) Preparar fecha, horas y duración (OBLIGATORIAS)
+      const fechaProd = parseDateOnlyUTC(fecha) || parseDateOnlyUTC(new Date());
 
       let dtInicio = parseDateOrTime(fecha, hora_inicio);
       let dtFin = parseDateOrTime(fecha, hora_fin);
@@ -144,7 +191,7 @@ async function registrarProduccion(req, res) {
         data: {
           receta_id: receta.id,
           cantidad_producida: qty,
-          fecha: fecha ? new Date(fecha) : undefined,
+          fecha: fecha ? parseDateOnlyUTC(fecha) : fechaProd, // anclada para "solo día"
           hora_inicio: dtInicio,
           hora_fin: dtFin,
           duracion_minutos: duracionMin,
@@ -182,7 +229,7 @@ async function registrarProduccion(req, res) {
           ref_tipo: 'PRODUCCION',
           ref_id: produccion.id,
           observacion: (observacion && String(observacion).trim()) || '',
-          fecha: fecha ? new Date(fecha) : undefined,
+          fecha: fecha ? parseDateOnlyUTC(fecha) : fechaProd,
         });
 
         mpUsadas.add(mpId);
@@ -439,7 +486,7 @@ async function calcularProduccion(req, res) {
     }
 
     // Plan esperado de PT (vencimiento SIEMPRE desde producción)
-    const fechaRef = new Date();
+    const fechaRef = parseDateOnlyUTC(new Date());
     const codigoLoteDia = yyyymmdd(fechaRef);
     const pt_plan = (receta.producto_maps || []).map((m) => {
       const unidades = Number(m.unidades_por_batch) * qty;
@@ -481,14 +528,16 @@ async function listarProducciones(req, res) {
     const where = {};
     if (receta_id) where.receta_id = Number(receta_id);
 
-    // rango por fecha (DATE)
+    // rango por fecha (DATE) – usa límites UTC del día para evitar corrimientos
     if (desde || hasta) {
       where.fecha = {};
-      if (desde) where.fecha.gte = new Date(desde);
+      if (desde) {
+        const d = parseDateOnlyUTC(desde);
+        if (d) where.fecha.gte = startOfUTCDate(d);
+      }
       if (hasta) {
-        const h = new Date(hasta);
-        h.setHours(23, 59, 59, 999);
-        where.fecha.lte = h;
+        const h = parseDateOnlyUTC(hasta);
+        if (h) where.fecha.lte = endOfUTCDate(h);
       }
     }
 
