@@ -75,7 +75,7 @@ const productosRoutes = require('./src/routes/productos.routes');
 const produccionRoutes = require('./src/routes/produccion.routes');
 const categoriasRecetaRoutes = require('./src/routes/categoriasReceta.routes');
 const empaquesRoutes = require('./src/routes/empaques.routes');
-
+const notificacionesRoutes = require('./src/routes/notificaciones.routes'); // <- FIX ruta correcta
 // pt.routes debe exportar { api, alias }
 const { api: ptApiRoutes, alias: ptAliasRoutes } = require('./src/routes/pt.routes');
 const cultivosRoutes = require('./src/routes/cultivos.routes');
@@ -104,6 +104,9 @@ app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/materias-primas', materiasPrimasRoutes);
 app.use('/api/lotes-materia-prima', lotesMateriaPrimaRoutes);
 app.use('/api/movimientos-mp', movimientosMpRoutes);
+
+// Notificaciones (persistentes)
+app.use('/api/notificaciones', notificacionesRoutes); // <- FIX path consistente con /api
 
 /* ------ Health/diag ------ */
 app.get('/api/__ping', (_req, res) => {

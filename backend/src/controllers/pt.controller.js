@@ -11,21 +11,26 @@ const toInt = (x) => {
   return Number.isFinite(n) ? Math.round(n) : 0;
 };
 
-/* === helper fecha/hora === */
+/* === helper fecha/hora (LOCAL, sin UTC implícito) === */
 function toDateOrNow(input) {
   if (input === undefined || input === null) return new Date();
   const s = String(input).trim();
 
+  // HH:mm -> hoy a esa hora (local)
   if (/^\d{2}:\d{2}$/.test(s)) {
     const [hh, mm] = s.split(':').map(Number);
     const d = new Date();
     d.setHours(hh, mm, 0, 0);
     return d;
   }
+
+  // YYYY-MM-DD -> local 00:00 (NO UTC)
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
     const [y, m, d] = s.split('-').map(Number);
     return new Date(y, m - 1, d, 0, 0, 0, 0);
   }
+
+  // ISO con tiempo -> lo que venga
   const d = new Date(s);
   return isNaN(d) ? new Date() : d;
 }
@@ -95,7 +100,7 @@ const consumirEmpaqueFIFO = async (tx, empaqueId, cantidadNecesariaStr, meta = {
           motivo: meta.motivo || 'CONSUMO_EMPAQUE',
           ref_tipo: meta.ref_tipo || 'PT',
           ref_id: meta.ref_id ?? null,
-          fecha: meta.fecha || new Date(),
+          fecha: meta.fecha ? toDateOrNow(meta.fecha) : new Date(),
         },
       });
       restanteM = subM(restanteM, usarM);
@@ -171,16 +176,6 @@ function assertMultipleIfEmpaque(producto, cantidad) {
 /* ===================== CONTROLADORES ===================== */
 
 /* --- ENTRADAS de PT (manuales) --- */
-/* --- ENTRADAS de PT (manuales) --- */
-/* Soporta etapa destino:
-   - etapa: 'HORNEO'  -> permite cualquier cantidad, NO consume bolsas
-   - etapa: 'EMPAQUE' -> exige múltiplo de unidades_por_empaque y SÍ consume bolsas
-   (por defecto: 'EMPAQUE' para mantener compatibilidad) */
-// --- ENTRADAS de PT (manuales) ---
-// Acepta etapa_destino: 'EMPAQUE' | 'HORNEO'
-// - En EMPAQUE: valida múltiplos y consume bolsas.
-// - En HORNEO: NO valida múltiplos y NO consume bolsas.
-// --- ENTRADAS de PT (manuales) ---
 // Acepta etapa_destino: 'EMPAQUE' | 'HORNEO'
 // - En EMPAQUE: valida múltiplos y consume bolsas.
 // - En HORNEO: NO valida múltiplos y NO consume bolsas.
@@ -226,13 +221,13 @@ exports.ingresarPT = async (req, res) => {
           await consumirEmpaqueFIFO(tx, prod.empaque_mp_id, String(bolsasNecesarias), {
             motivo: 'CONSUMO_POR_INGRESO_PT',
             ref_tipo: 'PT_INGRESO',
-            fecha: new Date(fecha_ingreso),
+            fecha: toDateOrNow(fecha_ingreso),
           });
           await recalcStockMP(tx, prod.empaque_mp_id);
         }
       }
 
-      // ⬇️ Buscar por producto+codigo+ETAPA (separado)
+      // Buscar/crear lote (producto + codigo + etapa)
       let lote = await tx.lotes_producto_terminado.findFirst({
         where: { producto_id: Number(producto_id), codigo: code, etapa: dest },
       });
@@ -242,8 +237,8 @@ exports.ingresarPT = async (req, res) => {
             producto_id: Number(producto_id),
             codigo: code,
             cantidad: '0.000',
-            fecha_ingreso: new Date(fecha_ingreso),
-            fecha_vencimiento: fecha_vencimiento ? new Date(fecha_vencimiento) : null,
+            fecha_ingreso: toDateOrNow(fecha_ingreso),
+            fecha_vencimiento: fecha_vencimiento ? toDateOrNow(fecha_vencimiento) : null,
             estado: 'DISPONIBLE',
             etapa: dest, // EMPAQUE u HORNEO
           },
@@ -257,7 +252,7 @@ exports.ingresarPT = async (req, res) => {
           lote_id: lote.id,
           tipo: 'ENTRADA',
           cantidad: String(cantidad),
-          fecha: new Date(fecha_ingreso),
+          fecha: toDateOrNow(fecha_ingreso),
           motivo: 'INGRESO_PT',
           ref_tipo: 'PT_INGRESO',
         },
@@ -267,7 +262,7 @@ exports.ingresarPT = async (req, res) => {
       const nuevaM = addM(toM(lote.cantidad), toM(cantidad));
       lote = await tx.lotes_producto_terminado.update({
         where: { id: lote.id },
-        data: { cantidad: fromM(nuevaM), estado: 'DISPONIBLE' },
+        data: { cantidad: fromM(nuevaM), estado: nuevaM === 0 ? 'AGOTADO' : 'DISPONIBLE' },
       });
 
       await recalcStockPTReady(tx, Number(producto_id));
@@ -277,10 +272,9 @@ exports.ingresarPT = async (req, res) => {
     res.json(out);
   } catch (e) {
     if (e.code === 'P2002') {
-      // Esto solo debería ocurrir si NO migraste la unicidad a (producto,codigo,etapa)
       return res.status(409).json({
         message:
-          'Código de lote ya usado para este producto. Si quieres tener el mismo código en otra etapa, debes aplicar la migración que hace único (producto,codigo,etapa).',
+          'Código de lote ya usado para este producto. Si quieres tener el mismo código en otra etapa, aplica la migración que hace único (producto,codigo,etapa).',
       });
     }
     res.status(400).json({ message: e.message });
@@ -301,7 +295,8 @@ exports.salidaPT = async (req, res) => {
       fecha,
     } = req.body;
 
-    const when = fecha ? new Date(fecha) : new Date();
+    // ⚠️ Fecha normalizada LOCAL (evita -1 día en UI)
+    const when = toDateOrNow(fecha);
     const loteIdNorm = Number(lote_id ?? loteId ?? 0) || null;
 
     const out = await prisma.$transaction(async (tx) => {
@@ -513,7 +508,6 @@ exports.listarLotesPT = async (req, res) => {
 };
 
 /* --- MOVER ETAPA (CONGELADO -> EMPAQUE | HORNEO) --- */
-/* --- MOVER ETAPA (CONGELADO -> EMPAQUE | HORNEO) --- */
 exports.moverEtapa = async (req, res) => {
   const id = Number(req.params.id || req.body.lote_id);
   const { nueva_etapa, cantidad, fecha } = req.body;
@@ -544,7 +538,7 @@ exports.moverEtapa = async (req, res) => {
       });
       if (!src) throw new Error('Lote origen no encontrado');
 
-      // Solo mover DESDE CONGELADO (como definiste el flujo)
+      // Solo mover DESDE CONGELADO
       const srcEtapa = String(src.etapa || 'EMPAQUE').toUpperCase();
       if (src.estado !== 'DISPONIBLE' || Number(src.cantidad) <= 0) {
         throw new Error('El lote origen no está disponible');
@@ -589,7 +583,7 @@ exports.moverEtapa = async (req, res) => {
             codigo: codigoDestino,
             cantidad: '0.000',
             fecha_ingreso: fechaMov,
-            fecha_vencimiento: null, // se hereda/establece más abajo si corresponde
+            fecha_vencimiento: null,
             estado: 'DISPONIBLE',
             etapa: dest,
           },
@@ -626,9 +620,7 @@ exports.moverEtapa = async (req, res) => {
       // ENTRADA en lote destino
       const nuevaDstM = addM(toM(dst.cantidad), moverM);
 
-      // ⚠️ CONSUMO DE EMPAQUES:
-      //   - Solo si destino = EMPAQUE
-      //   - Si destino = HORNEO → NO consume bolsas (tal como pediste)
+      // CONSUMO DE EMPAQUES (solo si destino = EMPAQUE)
       let bolsasConsumidas = 0;
       if (dest === 'EMPAQUE' && src.productos_terminados?.empaque_mp_id) {
         const bolsasNecesarias = calcularBolsasNecesarias(
@@ -680,7 +672,7 @@ exports.moverEtapa = async (req, res) => {
         },
       });
 
-      // Recalcular el stock "vendible" (EMPAQUE + HORNEO)
+      // Recalcular stock vendible
       await recalcStockPTReady(tx, src.producto_id);
 
       return {
@@ -716,14 +708,14 @@ exports.actualizarLote = async (req, res) => {
     const {
       codigo,
       fecha_ingreso,
-      fecha_vencimiento, // puede ser null para limpiar; si no viene, NO se toca
-      cantidad, // valor final absoluto (ud)
-      cantidad_delta, // delta +/- (ud)
+      fecha_vencimiento,
+      cantidad,
+      cantidad_delta,
       motivo_ajuste,
       fecha_ajuste,
-      paquetes, // opcional: si hay uxe>0
-      sueltas, // opcional: unidades sueltas
-      etapa, // 👈 NUEVO: permitir cambiar etapa (EMPAQUE/HORNEO/CONGELADO)
+      paquetes,
+      sueltas,
+      etapa,
     } = req.body;
 
     const lote = await prisma.lotes_producto_terminado.findUnique({
@@ -734,8 +726,8 @@ exports.actualizarLote = async (req, res) => {
     });
     if (!lote) return res.status(404).json({ message: 'Lote no encontrado' });
 
-    // ---- Resolver nueva cantidad (en unidades, no milésimas)
-    let newCantidad = undefined; // 👈 aseguro que SIEMPRE existe
+    // ---- Resolver nueva cantidad (en unidades)
+    let newCantidad = undefined;
     const uxe = Number(lote.productos_terminados?.unidades_por_empaque || 0);
 
     if (uxe > 0 && (paquetes !== undefined || sueltas !== undefined)) {
@@ -760,15 +752,15 @@ exports.actualizarLote = async (req, res) => {
       return res.status(400).json({ message: 'cantidad inválida' });
     }
 
-    // ---- Fechas y etapa: solo tocar si vienen en el body
+    // ---- Fechas y etapa
     const hasFV = Object.prototype.hasOwnProperty.call(req.body, 'fecha_vencimiento');
     const baseUpdate = {};
     if (codigo !== undefined) baseUpdate.codigo = String(codigo).trim();
     if (fecha_ingreso !== undefined) {
-      baseUpdate.fecha_ingreso = fecha_ingreso ? new Date(fecha_ingreso) : null;
+      baseUpdate.fecha_ingreso = fecha_ingreso ? toDateOrNow(fecha_ingreso) : null;
     }
     if (hasFV) {
-      baseUpdate.fecha_vencimiento = fecha_vencimiento ? new Date(fecha_vencimiento) : null;
+      baseUpdate.fecha_vencimiento = fecha_vencimiento ? toDateOrNow(fecha_vencimiento) : null;
     }
     if (etapa !== undefined) {
       const e = String(etapa).toUpperCase();
@@ -799,7 +791,7 @@ exports.actualizarLote = async (req, res) => {
             lote_id: lote.id,
             tipo: 'AJUSTE',
             cantidad: (Math.abs(deltaM) / 1000).toFixed(3),
-            fecha: fecha_ajuste ? new Date(fecha_ajuste) : new Date(),
+            fecha: fecha_ajuste ? toDateOrNow(fecha_ajuste) : new Date(),
             motivo: (motivo_ajuste && String(motivo_ajuste).trim()) || 'Ajuste manual',
             ref_tipo: 'AJUSTE_PT',
             ref_id: lote.id,
@@ -881,7 +873,7 @@ exports.liberarCongelado = async (req, res) => {
         data: { cantidad: fromM(nuevaM), estado: nuevaM === 0 ? 'AGOTADO' : 'DISPONIBLE' },
       });
 
-      // No hace falta recalcStockPTReady: CONGELADO no suma al stock vendible
+      // CONGELADO no cuenta a stock vendible; no recalc necesario
       return {
         lote_id: upd.id,
         producto_id: upd.producto_id,
@@ -987,10 +979,10 @@ exports.listarMovimientosPT = async (req, res) => {
     }
     if (desde || hasta) {
       where.fecha = {};
-      if (desde) where.fecha.gte = new Date(desde);
+      if (desde) where.fecha.gte = toDateOrNow(desde); // local 00:00
       if (hasta) {
-        const h = new Date(hasta);
-        h.setHours(23, 59, 59, 999);
+        const h = toDateOrNow(hasta); // local 00:00 de ese día
+        h.setHours(23, 59, 59, 999); // día completo (local)
         where.fecha.lte = h;
       }
     }

@@ -1,3 +1,4 @@
+// src/pages/Produccion.jsx
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/client';
 
@@ -50,6 +51,41 @@ function normalizeToSmallUnit(qty, unit) {
 /* ===== Orden alfabético (insensible a mayúsculas/acentos) ===== */
 const collator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
 const byNombre = (a, b) => collator.compare(String(a?.nombre || ''), String(b?.nombre || ''));
+
+/* ===== Mapear IDs de MP -> nombre (para errores del backend) ===== */
+const mpNameCache = new Map();
+
+async function getMpName(id) {
+  const key = String(id);
+  if (mpNameCache.has(key)) return mpNameCache.get(key);
+  try {
+    const { data } = await api.get(`/materias-primas/${id}`);
+    const name = data?.nombre || `MP #${id}`;
+    mpNameCache.set(key, name);
+    return name;
+  } catch {
+    const fallback = `MP #${id}`;
+    mpNameCache.set(key, fallback);
+    return fallback;
+  }
+}
+
+async function expandMpNamesInText(msg) {
+  if (!msg) return msg;
+  // Captura "MP #81", "MP 81", "materia prima 81", "empaque 81", etc.
+  const re = /\b(?:MP|materia(?:s)?\s*prima(?:s)?|empaque)\s*#?\s*(\d+)\b/gi;
+  const ids = [...new Set([...msg.matchAll(re)].map((m) => Number(m[1])))];
+  if (ids.length === 0) return msg;
+
+  const pairs = await Promise.all(ids.map(async (id) => [id, await getMpName(id)]));
+
+  let out = msg;
+  for (const [id, name] of pairs) {
+    const rx = new RegExp(`\\b(?:MP|materia(?:s)?\\s*prima(?:s)?|empaque)\\s*#?\\s*${id}\\b`, 'gi');
+    out = out.replace(rx, name);
+  }
+  return out;
+}
 
 /* ===== Página ===== */
 export default function Produccion() {
@@ -186,10 +222,12 @@ export default function Produccion() {
       setObservacion('');
       setLoteCodigo('');
     } catch (e) {
-      setToast({
-        type: 'error',
-        message: e?.response?.data?.message || 'Error registrando producción',
-      });
+      const raw =
+        e?.response?.data?.message ||
+        'No se pudo registrar la producción (verifica insumos y empaque)';
+      // ⬇️ mejora: reemplaza "MP #81" / "materia prima 81" por el nombre real
+      const pretty = await expandMpNamesInText(raw);
+      setToast({ type: 'error', message: pretty });
     } finally {
       setRegisterLoading(false);
     }
@@ -282,7 +320,7 @@ export default function Produccion() {
           </div>
 
           <div>
-            <label>Fecha (opcional)</label>
+            <label>Fecha</label>
             <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
           </div>
 
@@ -397,7 +435,7 @@ export default function Produccion() {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                 <strong>Salida esperada:</strong>
                 <span>
-                  {fmtDec(batches)} batch(es) × {fmtDec(rpb)} = <b>{fmtDec(expectedUnits)}</b>{' '}
+                  {fmtDec(batches)} Masa(s) × {fmtDec(rpb)} = <b>{fmtDec(expectedUnits)}</b>{' '}
                   {selectedReceta?.presentaciones
                     ? `${selectedReceta.presentaciones.nombre} (${fmtDec(selectedReceta.presentaciones.cantidad)} ${selectedReceta.presentaciones.unidad_medida})`
                     : 'unidades'}

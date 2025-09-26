@@ -17,7 +17,7 @@ const recalcStockMP = async (tx, mpId) => {
   });
 };
 
-// Descuento FIFO real de una MP y crea movimientos SALIDA
+// Descuento FIFO real de una MP y crea movimientos
 async function consumirMPFIFO(tx, mpId, cantidadStr, meta = {}) {
   let restanteM = toM(cantidadStr);
   if (!(restanteM > 0)) return;

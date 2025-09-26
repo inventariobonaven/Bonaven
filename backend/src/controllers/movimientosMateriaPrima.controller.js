@@ -1,7 +1,6 @@
 const prisma = require('../database/prismaClient');
 const { Prisma } = require('../generated/prisma');
 
-
 /* ========= Helpers ========= */
 const toDec = (x) => {
   if (x instanceof Prisma.Decimal) return x;
@@ -10,18 +9,25 @@ const toDec = (x) => {
   return new Prisma.Decimal(Number(x).toFixed(3));
 };
 
-
 // Aliases y normalización de unidades
 const UNIT_ALIASES = {
-  gr: 'g', g: 'g', gms: 'g',
+  gr: 'g',
+  g: 'g',
+  gms: 'g',
   kg: 'kg',
   ml: 'ml',
-  l: 'l', lt: 'l', lts: 'l',
-  ud: 'ud', u: 'ud', und: 'ud', uds: 'ud', unidad: 'ud', unidades: 'ud',
+  l: 'l',
+  lt: 'l',
+  lts: 'l',
+  ud: 'ud',
+  u: 'ud',
+  und: 'ud',
+  uds: 'ud',
+  unidad: 'ud',
+  unidades: 'ud',
 };
 const normUnit = (u) =>
-  u ? (UNIT_ALIASES[String(u).trim().toLowerCase()] || String(u).trim().toLowerCase()) : null;
-
+  u ? UNIT_ALIASES[String(u).trim().toLowerCase()] || String(u).trim().toLowerCase() : null;
 
 function unitGroup(u) {
   switch (u) {
@@ -38,7 +44,6 @@ function unitGroup(u) {
   }
 }
 
-
 function ensureCompatible(from, to, ctx = '') {
   const g1 = unitGroup(from);
   const g2 = unitGroup(to);
@@ -49,7 +54,6 @@ function ensureCompatible(from, to, ctx = '') {
   }
 }
 
-
 /** Convierte Prisma.Decimal entre unidades equivalentes */
 function convertDecAmount(qtyDec, from, to) {
   const f = normUnit(from);
@@ -57,36 +61,26 @@ function convertDecAmount(qtyDec, from, to) {
   if (!f || !t || f === t) return qtyDec;
   ensureCompatible(f, t, '(ajuste)');
 
-
   // masa
   if (f === 'g' && t === 'kg') return qtyDec.div(1000);
   if (f === 'kg' && t === 'g') return qtyDec.times(1000);
-
 
   // volumen
   if (f === 'ml' && t === 'l') return qtyDec.div(1000);
   if (f === 'l' && t === 'ml') return qtyDec.times(1000);
 
-
   // conteo
   return qtyDec;
 }
 
+//GET /api/movimientos-mp
 
-/**
- * GET /api/movimientos-mp
- * Query:
- *  - materia_prima_id?, lote_id?, lote_codigo?, tipo? (ENTRADA|SALIDA|AJUSTE)
- *  - desde?, hasta? (yyyy-mm-dd) -> filtra por "fecha" (rango local)
- *  - q? (busca en motivo, código de lote y nombre de MP)
- *  - page?, pageSize? (paginado)
- */
 async function listarMovimientos(req, res) {
   try {
     const {
       materia_prima_id,
       lote_id,
-      lote_codigo,    // 👈 nuevo filtro por código de lote (LIKE)
+      lote_codigo, // 👈 nuevo filtro por código de lote (LIKE)
       tipo,
       desde,
       hasta,
@@ -95,16 +89,13 @@ async function listarMovimientos(req, res) {
       pageSize = '50',
     } = req.query;
 
-
     const where = {};
     if (materia_prima_id) where.materia_prima_id = Number(materia_prima_id);
     if (lote_id) where.lote_id = Number(lote_id);
     if (tipo) where.tipo = String(tipo).toUpperCase();
 
-
     const hasDesde = !!(desde && String(desde).trim());
     const hasHasta = !!(hasta && String(hasta).trim());
-
 
     // rango por columna "fecha" (DateTime)
     if (hasDesde || hasHasta) {
@@ -113,13 +104,11 @@ async function listarMovimientos(req, res) {
       if (hasHasta) where.fecha.lte = new Date(`${hasta}T23:59:59.999`);
     }
 
-
     // Filtro por código de lote (LIKE)
     if (lote_codigo && String(lote_codigo).trim()) {
       const term = String(lote_codigo).trim();
       where.lotes = { is: { codigo: { contains: term, mode: 'insensitive' } } };
     }
-
 
     // Búsqueda libre "q": motivo, código de lote y nombre de MP
     if (q && q.trim()) {
@@ -131,15 +120,10 @@ async function listarMovimientos(req, res) {
       ];
     }
 
-
     const take = Math.max(1, Math.min(Number(pageSize) || 50, 200));
     const skip = (Math.max(1, Number(page) || 1) - 1) * take;
 
-
-    const orderBy = (hasDesde || hasHasta)
-      ? [{ fecha: 'desc' }, { id: 'desc' }]
-      : [{ id: 'desc' }];
-
+    const orderBy = hasDesde || hasHasta ? [{ fecha: 'desc' }, { id: 'desc' }] : [{ id: 'desc' }];
 
     const [total, items] = await Promise.all([
       prisma.movimientos_materia_prima.count({ where }),
@@ -151,11 +135,12 @@ async function listarMovimientos(req, res) {
         include: {
           materias_primas: { select: { id: true, nombre: true, unidad_medida: true } },
           // incluir código del lote
-          lotes: { select: { id: true, codigo: true, fecha_ingreso: true, fecha_vencimiento: true } },
+          lotes: {
+            select: { id: true, codigo: true, fecha_ingreso: true, fecha_vencimiento: true },
+          },
         },
       }),
     ]);
-
 
     const rows = items.map((m) => ({
       id: m.id,
@@ -178,12 +163,11 @@ async function listarMovimientos(req, res) {
       lote: m.lotes
         ? {
             id: m.lotes.id,
-            codigo: m.lotes.codigo || null,               // 👈 devolver código
+            codigo: m.lotes.codigo || null, // 👈 devolver código
             fecha_vencimiento: m.lotes.fecha_vencimiento,
           }
         : null,
     }));
-
 
     res.json({ total, page: Number(page) || 1, pageSize: take, items: rows });
   } catch (e) {
@@ -192,17 +176,10 @@ async function listarMovimientos(req, res) {
   }
 }
 
+// POST /api/movimientos-mp/ajuste (ADMIN)
 
-/**
- * POST /api/movimientos-mp/ajuste (ADMIN)
- * body: { materia_prima_id, lote_id?, lote_codigo?, cantidad, motivo?, unidad? }
- * - `cantidad` puede ser positiva (entra) o negativa (sale)
- * - si envías `unidad` (g|kg|ml|l|ud) se convierte a la UNIDAD BASE de la MP antes de aplicar
- * - puedes identificar el lote por `lote_id` o por `lote_codigo` (requiere materia_prima_id)
- */
 async function crearAjuste(req, res) {
   const { materia_prima_id, lote_id, lote_codigo, cantidad, motivo, unidad } = req.body;
-
 
   if (!materia_prima_id || cantidad === undefined) {
     return res.status(400).json({ message: 'materia_prima_id y cantidad son obligatorios' });
@@ -211,12 +188,10 @@ async function crearAjuste(req, res) {
     return res.status(400).json({ message: 'Debes enviar lote_id o lote_codigo' });
   }
 
-
   const cantNum = Number(cantidad);
   if (Number.isNaN(cantNum) || cantNum === 0) {
     return res.status(400).json({ message: 'La cantidad debe ser un número distinto de 0' });
   }
-
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -237,12 +212,10 @@ async function crearAjuste(req, res) {
         });
       }
 
-
       if (!lote) throw new Error('Lote no encontrado');
       if (lote.materia_prima_id !== Number(materia_prima_id)) {
         throw new Error('El lote no pertenece a la materia prima indicada');
       }
-
 
       // Unidad base de la MP
       const mp = await tx.materias_primas.findUnique({
@@ -252,16 +225,13 @@ async function crearAjuste(req, res) {
       if (!mp) throw new Error('Materia prima no encontrada');
       const baseUnit = normUnit(mp.unidad_medida) || 'g';
 
-
       // Normalizar cantidad a unidad base si viene `unidad`
       const inputUnit = unidad ? normUnit(unidad) : baseUnit;
       ensureCompatible(inputUnit, baseUnit, '(ajuste)');
       const cantBase = convertDecAmount(toDec(cantNum), inputUnit, baseUnit);
 
-
       const nueva = toDec(lote.cantidad).plus(cantBase);
       if (nueva.lt(0)) throw new Error('El ajuste dejaría el lote con cantidad negativa');
-
 
       // 1) movimiento (AJUSTE)
       const mov = await tx.movimientos_materia_prima.create({
@@ -275,18 +245,17 @@ async function crearAjuste(req, res) {
         },
       });
 
-
       // 2) actualizar lote y estado
-      const nuevoEstado =
-        nueva.eq(0) ? 'AGOTADO'
-        : (lote.estado === 'AGOTADO' && nueva.gt(0) ? 'DISPONIBLE' : lote.estado);
-
+      const nuevoEstado = nueva.eq(0)
+        ? 'AGOTADO'
+        : lote.estado === 'AGOTADO' && nueva.gt(0)
+          ? 'DISPONIBLE'
+          : lote.estado;
 
       const loteUpd = await tx.lotes_materia_prima.update({
         where: { id: lote.id },
         data: { cantidad: nueva, estado: nuevoEstado },
       });
-
 
       // 3) re-sync stock_total (solo DISPONIBLE)
       const agg = await tx.lotes_materia_prima.aggregate({
@@ -295,17 +264,14 @@ async function crearAjuste(req, res) {
       });
       const total = agg._sum.cantidad ?? new Prisma.Decimal('0.000');
 
-
       const mpUpd = await tx.materias_primas.update({
         where: { id: lote.materia_prima_id },
         data: { stock_total: total },
         select: { id: true, stock_total: true },
       });
 
-
       return { mov, lote: loteUpd, mp: mpUpd, unidad_base: baseUnit };
     });
-
 
     res.json({ message: 'Ajuste registrado', ...result });
   } catch (e) {
@@ -314,10 +280,4 @@ async function crearAjuste(req, res) {
   }
 }
 
-
 module.exports = { listarMovimientos, crearAjuste };
-
-
-
-
-

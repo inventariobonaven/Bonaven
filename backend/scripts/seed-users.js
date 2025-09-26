@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt');
 const prisma = require('../src/database/prismaClient');
 
 async function main() {
-  // Contraseñas iniciales (cámbialas después)
+  // Contraseñas iniciales
   const adminPassword = 'Admin123';
   const produccionPassword = 'Produccion123';
 
@@ -11,7 +11,7 @@ async function main() {
   const hashedProd = await bcrypt.hash(produccionPassword, 10);
 
   // Crear admin si no existe
-  const adminExists = await prisma.usuarios.findUnique({ where: { usuario: 'admin' }});
+  const adminExists = await prisma.usuarios.findUnique({ where: { usuario: 'admin' } });
   if (!adminExists) {
     const admin = await prisma.usuarios.create({
       data: {
@@ -19,16 +19,16 @@ async function main() {
         nombre: 'Administrador General',
         contrasena: hashedAdmin,
         rol: 'ADMIN',
-        estado: true
-      }
+        estado: true,
+      },
     });
     console.log('Admin creado -> usuario: admin, password:', adminPassword);
   } else {
     console.log('Admin ya existe:', adminExists.usuario);
   }
 
-  // Crear usuario de produccion si no existe (opcional)
-  const prodExists = await prisma.usuarios.findUnique({ where: { usuario: 'produccion' }});
+  // Crear usuario de produccion si no existe
+  const prodExists = await prisma.usuarios.findUnique({ where: { usuario: 'produccion' } });
   if (!prodExists) {
     const prod = await prisma.usuarios.create({
       data: {
@@ -36,8 +36,8 @@ async function main() {
         nombre: 'Usuario Producción',
         contrasena: hashedProd,
         rol: 'PRODUCCION',
-        estado : true
-      }
+        estado: true,
+      },
     });
     console.log('Producción creado -> usuario: produccion, password:', produccionPassword);
   } else {
@@ -46,8 +46,11 @@ async function main() {
 }
 
 main()
-  .then(() => { console.log('Seed completado'); process.exit(0); })
-  .catch(e => { console.error(e); process.exit(1); });
-
-
-
+  .then(() => {
+    console.log('Seed completado');
+    process.exit(0);
+  })
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });

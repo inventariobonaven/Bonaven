@@ -65,6 +65,14 @@ function toInt(n) {
   return Number.isFinite(x) ? Math.round(x) : 0;
 }
 
+function etapaLabel(etapa) {
+  const e = String(etapa || '').toUpperCase();
+  if (e === 'EMPAQUE') return '📦 EMPAQUE';
+  if (e === 'HORNEO') return '🔥 HORNEO';
+  if (e === 'CONGELADO') return '🧊 CONGELADO';
+  return e || '-';
+}
+
 function formatCantidadLote(l) {
   const etapa = String(l.etapa || '').toUpperCase();
   const uds = toInt(l.cantidad);
@@ -255,7 +263,7 @@ function SalidaPTForm({
               <option value="">— Seleccione —</option>
               {lotesOpts.map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.codigo} · {formatCantidadLote(l)}
+                  {l.codigo} · {formatCantidadLote(l)} · {etapaLabel(l.etapa)}
                   {l.fecha_ingreso ? ` (ing: ${String(l.fecha_ingreso).slice(0, 10)})` : ''}
                 </option>
               ))}

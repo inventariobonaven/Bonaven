@@ -31,7 +31,40 @@ function Toast({ type = 'success', message, onClose }) {
   );
 }
 
-const fmtDate = (x) => (x ? new Date(x).toLocaleDateString() : '—');
+/* ===== Fechas: estable en UTC (evita corrimientos de día) ===== */
+const fmtDate = (x) => {
+  if (!x) return '—';
+  const s = String(x);
+  // Si viene "YYYY-MM-DD" o "YYYY-MM-DDTHH:MM:SSZ", extraemos Y-M-D y mostramos dd/mm/aaaa
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const [, y, mo, d] = m;
+    return `${d}/${mo}/${y}`;
+  }
+  // Fallback: construimos fecha y la mostramos en UTC
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return '—';
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${dd}/${mo}/${y}`;
+};
+
+// Epoch de medianoche UTC (para ordenar sin desfasar días)
+const utcMidnightMs = (v) => {
+  if (!v) return 0;
+  const s = String(v);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]) - 1;
+    const d = Number(m[3]);
+    return Date.UTC(y, mo, d);
+  }
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return 0;
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+};
 
 /* ===== Orden alfabético ===== */
 const collator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
@@ -139,10 +172,10 @@ export default function MovimientosPT() {
   }, [items, filters.q, productos]);
 
   const sorted = useMemo(() => {
-    // fecha desc, luego id desc
+    // fecha (medianoche UTC) desc, luego id desc
     return [...filtered].sort((a, b) => {
-      const da = new Date(a.fecha || 0).getTime();
-      const db = new Date(b.fecha || 0).getTime();
+      const da = utcMidnightMs(a.fecha);
+      const db = utcMidnightMs(b.fecha);
       if (db !== da) return db - da;
       return (b.id || 0) - (a.id || 0);
     });

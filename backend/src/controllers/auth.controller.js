@@ -2,7 +2,7 @@
 const prisma = require('../database/prismaClient');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { getPermissionsByRole } = require('../middlewares/auth'); // importante
+const { getPermissionsByRole } = require('../middlewares/auth');
 require('dotenv').config();
 
 exports.login = async (req, res) => {
@@ -32,15 +32,15 @@ exports.login = async (req, res) => {
     // Verificar si existe la clave JWT_SECRET
     if (!process.env.JWT_SECRET) {
       console.error('❌ JWT_SECRET no está definida en el archivo .env');
-      return res.status(500).json({ message: 'Error de configuración del servidor: falta JWT_SECRET' });
+      return res
+        .status(500)
+        .json({ message: 'Error de configuración del servidor: falta JWT_SECRET' });
     }
 
     // Crear token con id y rol
-    const token = jwt.sign(
-      { userId: user.id, rol: user.rol },
-      process.env.JWT_SECRET,
-      { expiresIn: '12h' }
-    );
+    const token = jwt.sign({ userId: user.id, rol: user.rol }, process.env.JWT_SECRET, {
+      expiresIn: '12h',
+    });
 
     // Calcular permisos
     const permissions = getPermissionsByRole(user.rol);
@@ -51,7 +51,7 @@ exports.login = async (req, res) => {
     res.json({
       token,
       user: userSafe,
-      permissions
+      permissions,
     });
   } catch (err) {
     console.error('❌ Error en login:', err);
@@ -65,13 +65,10 @@ exports.me = async (req, res) => {
     const { contrasena, ...userSafe } = req.user;
     res.json({
       user: userSafe,
-      permissions: req.permissions
+      permissions: req.permissions,
     });
   } catch (err) {
     console.error('❌ Error en /me:', err);
     res.status(500).json({ message: 'Error interno' });
   }
 };
-
-
-

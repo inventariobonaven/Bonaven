@@ -199,6 +199,25 @@ async function registrarProduccion(req, res) {
         },
       });
 
+      // 🔔 Notificación persistente si hay observación
+      if (observacion && String(observacion).trim()) {
+        await tx.notificaciones.create({
+          data: {
+            tipo: 'OBS_PRODUCCION',
+            mensaje: `Producción #${produccion.id} con observación`,
+            target_rol: 'ADMIN',
+            payload: {
+              produccionId: produccion.id,
+              recetaId: receta.id,
+              receta: receta.nombre,
+              cantidad: qty,
+              fecha: fecha ? parseDateOnlyUTC(fecha) : fechaProd,
+              observacion: String(observacion).trim(),
+            },
+          },
+        });
+      }
+
       // === obtener "tipo" de cada MP para detectar CULTIVO (masa madre) ===
       const mpIds = receta.ingredientes_receta
         .map((i) => Number(i.materia_prima_id))

@@ -1,32 +1,47 @@
-:root{
-  --bg:#faf7f2;
-  --panel:#ffffff;
-  --accent:#ffdca8;   /* amarillo crema */
-  --accent2:#cfe8ff;  /* azul muy claro */
-  --accent3:#ffd2e1;  /* rosado crema */
-  --text:#3a3a3a;
-  --border:#f0e6da;
+:root {
+  --bg: #faf7f2;
+  --panel: #ffffff;
+  --accent: #ffdca8; /* amarillo crema */
+  --accent2: #cfe8ff; /* azul muy claro */
+  --accent3: #ffd2e1; /* rosado crema */
+  --text: #3a3a3a;
+  --border: #f0e6da;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  font-family:
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    Ubuntu,
+    Cantarell,
+    Noto Sans,
+    Helvetica,
+    Arial,
+    'Apple Color Emoji',
+    'Segoe UI Emoji';
 }
 
 /* ---- Estructura principal ---- */
-.app-shell{
+.app-shell {
   display: grid;
   grid-template-columns: 240px 1fr; /* sidebar + contenido */
   min-height: 100vh;
 }
 
 /* ---- Sidebar ---- */
-.sidebar{
+.sidebar {
   background: linear-gradient(180deg, var(--accent), var(--accent3));
   padding: 18px 14px;
   border-right: 1px solid var(--border);
@@ -34,10 +49,16 @@ html, body, #root {
   flex-direction: column;
   gap: 10px;
 }
-.brand { margin: 0 0 2px 0; }
+.brand {
+  margin: 0 0 2px 0;
+}
 
-.sidebar nav { display: grid; gap: 8px; margin: 8px 0 10px; }
-.sidebar nav a{
+.sidebar nav {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 10px;
+}
+.sidebar nav a {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -45,16 +66,21 @@ html, body, #root {
   border-radius: 10px;
   color: #333;
   text-decoration: none;
-  background: rgba(255,255,255,0.5);
+  background: rgba(255, 255, 255, 0.5);
   transition: 0.15s ease;
 }
-.sidebar nav a:hover { background: var(--panel); }
+.sidebar nav a:hover {
+  background: var(--panel);
+}
 .sidebar nav a.active {
   background: #fff;
   border: 1px solid var(--border);
   font-weight: 600;
 }
-.sidebar .icon { width: 22px; text-align: center; }
+.sidebar .icon {
+  width: 22px;
+  text-align: center;
+}
 
 /* Perfil y salir en el pie del sidebar */
 .userbox {
@@ -71,13 +97,13 @@ html, body, #root {
 }
 
 /* ---- Contenido ---- */
-.main{
+.main {
   display: grid;
   grid-template-rows: 56px 1fr; /* topbar + contenido */
 }
 
 /* Barra superior fija y ligera */
-.topbar{
+.topbar {
   background: var(--panel);
   border-bottom: 1px solid #eee;
   padding: 0 16px;
@@ -88,19 +114,229 @@ html, body, #root {
   top: 0;
   z-index: 5;
 }
-.page-title { font-weight: 700; }
-.right-tools { display: flex; align-items: center; gap: 10px; }
-.badge{
+.page-title {
+  font-weight: 700;
+}
+.right-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.badge {
   padding: 3px 8px;
   background: var(--accent2);
   border-radius: 999px;
   font-size: 12px;
 }
 
-.content{ padding: 16px; }
+.content {
+  padding: 16px;
+}
 
 /* Utilidades menores */
-.muted { color: #8c8c8c; }
+.muted {
+  color: #8c8c8c;
+}
 
+/* ===== Notificaciones (dropdown) ===== */
+.noti {
+  position: relative;
+  display: inline-block;
+}
+.noti-btn {
+  position: relative;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.noti-btn:hover {
+  background: #f7f7f8;
+}
+.noti-icon {
+  font-size: 18px;
+}
+.noti-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 10px;
+  box-shadow: 0 0 0 2px #fff;
+}
 
+@keyframes noti-bump {
+  0% {
+    transform: scale(1);
+  }
+  20% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.noti-bump {
+  animation: noti-bump 0.6s ease;
+}
 
+.noti-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 380px;
+  max-width: 92vw;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+  z-index: 1000;
+}
+.noti-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #eee;
+}
+.noti-title {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.noti-actions .link {
+  margin-left: 10px;
+}
+
+.noti-list {
+  max-height: 420px;
+  overflow: auto;
+}
+.noti-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px;
+  color: #4b5563;
+  background: #f8fafc;
+}
+.noti-item {
+  padding: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.noti-item:last-child {
+  border-bottom: none;
+}
+.noti-time {
+  font-size: 12px;
+  color: #9ca3af;
+}
+.noti-row {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 8px;
+  margin-top: 4px;
+}
+.noti-dot {
+  font-size: 16px;
+  line-height: 24px;
+}
+.noti-body {
+  overflow: hidden;
+}
+.noti-strong {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.noti-text {
+  font-size: 14px;
+  white-space: pre-wrap;
+}
+.noti-foot {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+/* enlaces “link” reusables */
+.link {
+  background: none;
+  border: none;
+  color: #2563eb;
+  padding: 0;
+  cursor: pointer;
+  font-size: 14px;
+}
+.link:hover {
+  text-decoration: underline;
+}
+
+/* ===== Toaster (arriba derecha) ===== */
+.toaster {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: min(360px, 90vw);
+  z-index: 1100;
+}
+.toast {
+  position: relative;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-left: 4px solid #2563eb;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+}
+.toast-x {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: #9ca3af;
+  cursor: pointer;
+}
+.toast-x:hover {
+  color: #4b5563;
+}
+.toast-time {
+  font-size: 12px;
+  color: #9ca3af;
+}
+.toast-title {
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.toast-sub {
+  font-size: 14px;
+  margin-top: 2px;
+}
+.toast-text {
+  font-size: 14px;
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+.toast-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 14px;
+  color: #2563eb;
+}
+.toast-link:hover {
+  text-decoration: underline;
+}

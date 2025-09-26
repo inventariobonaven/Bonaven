@@ -16,42 +16,24 @@ router.post(
   '/calcular',
   authenticateToken,
   authorizeRoles('ADMIN', 'PRODUCCION'),
-  calcularProduccion
+  calcularProduccion,
 );
 
 // Registrar producción — descuenta MP FIFO y genera lotes PT (etapa según producto)
-router.post(
-  '/',
-  authenticateToken,
-  authorizeRoles('ADMIN', 'PRODUCCION'),
-  registrarProduccion
-);
+router.post('/', authenticateToken, authorizeRoles('ADMIN', 'PRODUCCION'), registrarProduccion);
 
 // Listar producciones (historial)
-router.get(
-  '/',
-  authenticateToken,
-  authorizeRoles('ADMIN', 'PRODUCCION'),
-  listarProducciones
-);
+router.get('/', authenticateToken, authorizeRoles('ADMIN', 'PRODUCCION'), listarProducciones);
 
 // Detalle de una producción
-router.get(
-  '/:id',
-  authenticateToken,
-  authorizeRoles('ADMIN', 'PRODUCCION'),
-  detalleProduccion
-);
+router.get('/:id', authenticateToken, authorizeRoles('ADMIN', 'PRODUCCION'), detalleProduccion);
 
 // Insumos usados por una producción (para tooltip/hover en historial)
 router.get(
   '/:id/insumos',
   authenticateToken,
   authorizeRoles('ADMIN', 'PRODUCCION'),
-  insumosProduccion
+  insumosProduccion,
 );
 
 module.exports = router;
-
-
-

@@ -37,7 +37,9 @@ enum Rol {
   PRODUCCION
 }
 
-/* === NUEVOS: Etapas PT y base de vencimiento === */
+/**
+ * === NUEVOS: Etapas PT y base de vencimiento ===
+ */
 enum EtapaPT {
   CONGELADO
   EMPAQUE
@@ -123,17 +125,17 @@ model materias_primas {
 }
 
 model lotes_materia_prima {
-  id                Int        @id @default(autoincrement())
-  materia_prima_id  Int
-  proveedor_id      Int?
-  codigo            String     @db.VarChar(64)
-  cantidad          Decimal    @db.Decimal(18, 3)
+  id               Int     @id @default(autoincrement())
+  materia_prima_id Int
+  proveedor_id     Int?
+  codigo           String  @db.VarChar(64)
+  cantidad         Decimal @db.Decimal(18, 3)
 
   // ⬇️ CAMBIO: de @db.Date a timestamp sin zona
-  fecha_ingreso     DateTime   @db.Timestamp(6)
-  fecha_vencimiento DateTime?  @db.Timestamp(6)
+  fecha_ingreso     DateTime  @db.Timestamp(6)
+  fecha_vencimiento DateTime? @db.Timestamp(6)
 
-  estado            EstadoLote @default(DISPONIBLE)
+  estado EstadoLote @default(DISPONIBLE)
 
   materias_primas materias_primas @relation(fields: [materia_prima_id], references: [id])
   proveedores     proveedores?    @relation(fields: [proveedor_id], references: [id])
@@ -184,7 +186,7 @@ model productos_terminados {
   unidades_por_empaque  Int?
   descripcion_contenido String?
 
-  // ¿requiere congelación previa antes de vender? (flujo CONGELADO -> HORNEO -> EMPAQUE)
+  // ¿requiere congelación previa antes de vender? (flujo CONGELADO -> HORNEO Ó EMPAQUE)
   requiere_congelacion_previa Boolean @default(false)
 
   materias_primas_empaque materias_primas? @relation("ProductoEmpaque", fields: [empaque_mp_id], references: [id])
@@ -212,16 +214,12 @@ model lotes_producto_terminado {
   estado            EstadoLote @default(DISPONIBLE)
 
   // Etapa del lote
-  etapa             EtapaPT    @default(EMPAQUE)
+  etapa EtapaPT @default(EMPAQUE)
 
   productos_terminados productos_terminados       @relation(fields: [producto_id], references: [id])
   movimientos          stock_producto_terminado[]
 
-  // ⬇️ NUEVA unicidad: por producto + código + etapa
   @@unique([producto_id, codigo, etapa], name: "uq_ptprod_codigo_etapa")
-
-
-
   @@index([producto_id, estado])
   @@index([producto_id, estado, etapa, fecha_ingreso])
   @@index([producto_id, estado, fecha_vencimiento, fecha_ingreso], name: "idx_pt_fifo")
@@ -320,13 +318,15 @@ model trazabilidad_produccion {
   producciones        producciones?        @relation(fields: [produccion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
-/* === Mapeo Receta ↔️ Producto (rendimiento y vencimiento) === */
+/**
+ * === Mapeo Receta ↔️ Producto (rendimiento y vencimiento) ===
+ */
 model receta_producto_map {
-  id               Int                  @id @default(autoincrement())
-  receta_id        Int
-  producto_id      Int
-  receta           recetas              @relation(fields: [receta_id], references: [id])
-  producto         productos_terminados @relation(fields: [producto_id], references: [id])
+  id          Int                  @id @default(autoincrement())
+  receta_id   Int
+  producto_id Int
+  receta      recetas              @relation(fields: [receta_id], references: [id])
+  producto    productos_terminados @relation(fields: [producto_id], references: [id])
 
   // Por cada batch (masa) cuántas unidades de ese PT se obtienen (enteras)
   unidades_por_batch Int
@@ -380,4 +380,20 @@ model detalles_venta {
   ventas               ventas?               @relation(fields: [venta_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   productos_terminados productos_terminados? @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   presentaciones       presentaciones?       @relation(fields: [presentacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/**
+ * ======================= NOTIFICACIONES =======================
+ */
+
+model notificaciones {
+  id         Int      @id @default(autoincrement())
+  tipo       String   @db.VarChar(50) // p.ej. "OBS_PRODUCCION"
+  mensaje    String
+  payload    Json?
+  target_rol String   @db.VarChar(20) // "ADMIN" | "PRODUCCION"
+  leida      Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([leida, target_rol, created_at])
 }

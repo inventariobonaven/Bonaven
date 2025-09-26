@@ -2,6 +2,8 @@
 import { useEffect } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import NotificationBell from './NotificationBell';
+import NotificationToaster from './NotificationToaster';
 import './Layout.css';
 
 /* ====== Menú por rol ====== */
@@ -92,7 +94,11 @@ export default function Layout() {
       <div className="main">
         <header className="topbar">
           <div className="page-title">{titleFromPath(pathname, NAV)}</div>
+
           <div className="right-tools">
+            {/* Campana de notificaciones: solo renderiza algo si el rol es ADMIN */}
+            <NotificationBell />
+
             <span className="badge">{role || 'SIN ROL'}</span>
             <span className="muted">{user?.usuario}</span>
             <button className="btn-outline" onClick={logout}>
@@ -104,6 +110,9 @@ export default function Layout() {
         <main className="content">
           <Outlet />
         </main>
+
+        {/* Toaster flotante para notificaciones pendientes */}
+        <NotificationToaster />
       </div>
     </div>
   );
