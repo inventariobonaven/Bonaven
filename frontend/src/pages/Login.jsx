@@ -1,30 +1,34 @@
 // src/pages/Login.jsx
-import { useState } from "react";
-import { useAuth } from "../auth/AuthContext";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useState } from 'react';
+import { useAuth } from '../auth/AuthContext';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 export default function Login() {
   const { login } = useAuth();
-  const [usuario, setUsuario] = useState("admin");
-  const [contrasena, setContrasena] = useState("Admin123");
+  const [usuario, setUsuario] = useState(''); // ← vacío
+  const [contrasena, setContrasena] = useState(''); // ← vacío
   const [showPwd, setShowPwd] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const expired = searchParams.get("expired") === "1";
+  const expired = searchParams.get('expired') === '1';
 
   async function onSubmit(e) {
     e.preventDefault();
-    setError("");
+    setError('');
+    if (!usuario.trim() || !contrasena) {
+      setError('Ingresa usuario y contraseña');
+      return;
+    }
     setLoading(true);
     try {
       await login(usuario.trim(), contrasena);
-      navigate("/");
+      navigate('/');
     } catch (err) {
-      console.error("[Login] error", err);
-      setError(err?.response?.data?.message || "Error al iniciar sesión");
+      console.error('[Login] error', err);
+      setError(err?.response?.data?.message || 'Error al iniciar sesión');
     } finally {
       setLoading(false);
     }
@@ -47,11 +51,22 @@ export default function Login() {
           </div>
         )}
 
-        <form onSubmit={onSubmit} style={{ marginTop: 10 }}>
+        <form onSubmit={onSubmit} autoComplete="off" noValidate style={{ marginTop: 10 }}>
+          {/* Honeypots para desviar autofill */}
+          <input type="text" name="fakeuser" autoComplete="username" style={{ display: 'none' }} />
+          <input
+            type="password"
+            name="fakepass"
+            autoComplete="new-password"
+            style={{ display: 'none' }}
+          />
+
           <label>Usuario</label>
           <input
+            name="username"
             autoFocus
             autoComplete="username"
+            spellCheck="false"
             placeholder="Ej. admin"
             value={usuario}
             onChange={(e) => setUsuario(e.target.value)}
@@ -60,7 +75,8 @@ export default function Login() {
           <label style={{ marginTop: 12 }}>Contraseña</label>
           <div className="input-with-action">
             <input
-              type={showPwd ? "text" : "password"}
+              name="password"
+              type={showPwd ? 'text' : 'password'}
               autoComplete="current-password"
               placeholder="••••••••"
               value={contrasena}
@@ -70,9 +86,9 @@ export default function Login() {
               type="button"
               className="btn-outline sm"
               onClick={() => setShowPwd((v) => !v)}
-              aria-label={showPwd ? "Ocultar contraseña" : "Mostrar contraseña"}
+              aria-label={showPwd ? 'Ocultar contraseña' : 'Mostrar contraseña'}
             >
-              {showPwd ? "Ocultar" : "Mostrar"}
+              {showPwd ? 'Ocultar' : 'Mostrar'}
             </button>
           </div>
 
@@ -80,15 +96,12 @@ export default function Login() {
             className="btn-primary"
             type="submit"
             disabled={loading}
-            style={{ width: "100%", marginTop: 14 }}
+            style={{ width: '100%', marginTop: 14 }}
           >
-            {loading ? "Ingresando…" : "Entrar"}
+            {loading ? 'Ingresando…' : 'Entrar'}
           </button>
         </form>
       </div>
     </div>
   );
 }
-
-
-

@@ -235,7 +235,7 @@ function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
           </div>
 
           <div>
-            <label>Unidades por batch</label>
+            <label>Unidades por masa</label>
             <input
               name="unidades_por_batch"
               type="number"

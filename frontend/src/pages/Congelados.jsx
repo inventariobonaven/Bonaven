@@ -38,11 +38,26 @@ const asNum = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 const fmt0 = (v) => String(Math.round(asNum(v))); // ← enteros
-const dstr = (d) => (d ? new Date(d).toLocaleDateString() : '—');
+
+// ✅ Mostrar fechas sin desfase (toma solo YYYY-MM-DD)
+function dateOnly(d) {
+  if (!d) return '—';
+  const s = typeof d === 'string' ? d : new Date(d).toISOString();
+  return s.slice(0, 10);
+}
+
+// ✅ Enviar fechas ancladas a mediodía UTC para evitar corrimiento
+function ensureDateForAPI(v) {
+  if (!v) return undefined;
+  const s = String(v);
+  // si viene "YYYY-MM-DD" lo anclamos a mediodía UTC
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return `${s}T12:00:00Z`;
+  return s; // ya viene ISO
+}
 
 export default function Congelados() {
   const [q, setQ] = useState('');
-  const [when, setWhen] = useState(''); // fecha opcional del movimiento
+  const [when, setWhen] = useState(''); // fecha opcional del movimiento (YYYY-MM-DD)
   const [rows, setRows] = useState([]);
   const [qty, setQty] = useState({}); // { [loteId]: cantidad a mover }
   const [loading, setLoading] = useState(false);
@@ -107,14 +122,15 @@ export default function Congelados() {
       const payload = {
         nueva_etapa: destino, // "EMPAQUE" | "HORNEO"
         cantidad: cant, // ← entero
-        fecha: when || null,
+        // ✅ fecha anclada a 12:00Z para evitar guardar día anterior
+        fecha: ensureDateForAPI(when) ?? null,
       };
       const { data } = await moverEtapa(lote.id, payload);
 
       const partes = [];
       if (data?.empaques_consumidos) partes.push(`Bolsas: ${fmt0(data.empaques_consumidos)}`);
       if (data?.destino?.fecha_vencimiento)
-        partes.push(`Vence: ${dstr(data.destino.fecha_vencimiento)}`);
+        partes.push(`Vence: ${dateOnly(data.destino.fecha_vencimiento)}`);
 
       setToast({
         type: 'success',
@@ -133,7 +149,7 @@ export default function Congelados() {
     }
   }
 
-  // 👇 NUEVO: liberar (salida) desde CONGELADO
+  // 👇 LIBERACIÓN (salida) desde CONGELADO
   async function doLiberar(lote) {
     const cant = Math.floor(asNum(qty[lote.id]));
     const max = Math.floor(asNum(lote.cantidad));
@@ -151,7 +167,8 @@ export default function Congelados() {
       await api.post('/stock-pt/liberacion', {
         lote_id: lote.id,
         cantidad: cant,
-        fecha: when || null,
+        // ✅ fecha anclada a 12:00Z
+        fecha: ensureDateForAPI(when) ?? null,
       });
 
       setToast({
@@ -262,8 +279,9 @@ export default function Congelados() {
                       <td style={{ textAlign: 'right' }}>
                         <b>{fmt0(r.cantidad)}</b>
                       </td>
-                      <td>{dstr(r.fecha_ingreso)}</td>
-                      <td>{dstr(r.fecha_vencimiento)}</td>
+                      {/* ✅ mostrar fechas sin crear Date (evita -1 día) */}
+                      <td>{dateOnly(r.fecha_ingreso)}</td>
+                      <td>{dateOnly(r.fecha_vencimiento)}</td>
                       <td>
                         <div style={{ display: 'grid', gap: 6 }}>
                           <input
@@ -299,7 +317,7 @@ export default function Congelados() {
                           >
                             → Horneo
                           </button>
-                          {/* 👇 NUEVO BOTÓN */}
+                          {/* 👇 LIBERAR */}
                           <button
                             className="btn-danger-outline"
                             onClick={() => doLiberar(r)}
