@@ -1,12 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="es" translate="no"> <!-- 👈 idioma correcto y bloquea traducción -->
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta http-equiv="Content-Language" content="es" /> <!-- 👈 refuerza idioma -->
+    <meta name="google" content="notranslate" />         <!-- 👈 Chrome/Edge no traducen -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Inventario Y producción</title>
+    <title>Inventario y Producción</title>
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
   </head>
-  <body>
+  <body class="notranslate">  <!-- 👈 cinturón y tirantes -->
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

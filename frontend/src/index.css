@@ -1,18 +1,24 @@
-/* ===== Reset y base tipográfica ===== */
+/* ============================================
+   RESET GLOBAL SEGURO
+   ============================================ */
 *,
 *::before,
 *::after {
   box-sizing: border-box;
+  -webkit-user-drag: none;
 }
 
-:root {
-  --bg: #ffffff;
-  --fg: #213547;
-  --muted: #6b7280;
-  --border: #e5e7eb;
-  --card: #ffffff;
-  --brand: #646cff;
+html {
+  /* Evita traducciones automáticas */
+  translate: no;
+}
 
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: #ffffff;
+  color: #213547;
   font-family:
     system-ui,
     -apple-system,
@@ -22,92 +28,106 @@
     Arial,
     'Apple Color Emoji',
     'Segoe UI Emoji';
-  line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light;
-  color: var(--fg);
-  background-color: var(--bg);
-
-  font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Evita autocompletar inteligente que mete texto basura */
+  -webkit-text-size-adjust: 100%;
 }
 
-/* Enlaces */
-a {
-  color: var(--brand);
-  text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
-}
-
-/* Body */
-body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
-  background: var(--bg);
-  color: var(--fg);
-}
-
-/* Botones base (tus .btn-* seguirán funcionando) */
-button {
-  font-family: inherit;
-  font-size: 1rem;
-  cursor: pointer;
-}
-
-/* Titulares */
+/* ============================================
+   TIPOGRAFÍA BASE
+   ============================================ */
 h1,
 h2,
 h3 {
   margin: 0 0 0.5rem;
   font-weight: 700;
 }
-h1 {
-  font-size: 2rem;
-  line-height: 1.2;
+
+p {
+  margin: 0;
 }
 
-/* ===== Tablas (global-safe para .table) ===== */
+/* ============================================
+   ENLACES
+   ============================================ */
+a {
+  color: #646cff;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* ============================================
+   FORMULARIOS
+   ============================================ */
+input,
+select,
+textarea {
+  font: inherit;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  padding: 6px 8px;
+}
+
+/* ============================================
+   TABLAS – MODO BLINDADO
+   ============================================ */
 .table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed; /* ancho estable por columna */
-  border: 1px solid var(--border);
-  background: var(--card);
+  table-layout: fixed;
+  border: 1px solid #e5e7eb;
+  background: #fff;
 }
+
 .table thead th {
+  padding: 10px 12px;
+  background: #f4f4f4;
   font-weight: 600;
-  background: #fafafa;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+
+  /* No permitir líneas largas */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.table th,
+
 .table td {
   padding: 10px 12px;
-  border-top: 1px solid var(--border);
-  vertical-align: middle;
+  border-top: 1px solid #e5e7eb;
 
-  /* Evita textos largos/insertados que rompan filas */
-  white-space: nowrap; /* no partir línea */
-  overflow: hidden; /* recorta exceso */
-  text-overflow: ellipsis; /* agrega … */
-  word-break: keep-all;
-  hyphens: none;
+  /* 🔥 ANTI TEXTO EXTRAÑO / ANTI CAMBIOS AUTOMÁTICOS */
+  white-space: nowrap; /* No saltar líneas */
+  overflow: hidden; /* Oculta si excede */
+  text-overflow: ellipsis; /* Añade … si se desborda */
+  word-break: keep-all; /* No romper palabras */
+  hyphens: none; /* No guiones automáticos */
   -webkit-hyphens: none;
   -ms-hyphens: none;
+
+  /* Evita zoom raro en móviles */
+  -webkit-text-size-adjust: 100%;
 }
 
-/* Si alguna celda SÍ debe partir línea, usa .wrap en ese TD */
+/* ============================================
+   OPCIONAL: celdas que SÍ deben permitir texto largo
+   (ej: Observaciones)
+   ============================================ */
 .wrap {
   white-space: normal !important;
   overflow: visible !important;
-  text-overflow: clip !important;
+  text-overflow: clip !important; /* sin “…” */
+  word-break: break-word !important;
 }
 
-/* Utilidades */
+/* ============================================
+   UTILIDADES
+   ============================================ */
 .nowrap {
   white-space: nowrap !important;
 }
@@ -117,47 +137,15 @@ h1 {
   text-overflow: ellipsis;
 }
 
-/* Formularios base */
-input,
-select,
-textarea {
-  font: inherit;
+/* ============================================
+   ANTI-TRADUCCIÓN (extra seguro)
+   ============================================ */
+.notranslate,
+table,
+thead,
+tbody,
+td,
+th {
+  translate: no !important;
+  -webkit-translate: no !important;
 }
-
-/* ===== Defensa anti “texto fantasma” / ayudas automáticas ===== */
-/* Desactiva síntesis/lectura automática que algunos navegadores inyectan */
-* {
-  speak: none !important; /* especificación aural (silencio) */
-  -webkit-speech: none !important; /* WebKit */
-  -moz-speech: none !important; /* Gecko */
-}
-
-/* Evita autohífen y descripciones extendidas dentro de opciones */
-select,
-option {
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  overflow: hidden;
-}
-
-/* iOS: evita zoom al focusear inputs (>=16px) */
-@supports (-webkit-touch-callout: none) {
-  input,
-  select,
-  textarea {
-    font-size: 16px;
-  }
-}
-
-/* Chrome/Edge: estabiliza color de autofill y evita overlay raro */
-input:-webkit-autofill {
-  -webkit-text-fill-color: var(--fg);
-  transition: background-color 100000s ease-in-out 0s;
-}
-
-/* Date inputs: que el texto no se desborde en celdas estrechas */
-input[type='date'] {
-  min-width: 10ch;
-}
-
-/* Fin */
