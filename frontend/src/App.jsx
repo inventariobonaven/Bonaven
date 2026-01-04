@@ -23,11 +23,10 @@ import Congelados from './pages/Congelados';
 import Cultivos from './pages/Cultivos';
 import { useEffect, useState } from 'react';
 
-/* -----------------------------------------------------------
-   Bootstrap de sesión: si AuthContext no tiene user pero hay
-   token en localStorage, validamos/renovamos con /auth/me.
-   Si AuthContext expone setUser, lo usamos (si no, igual sirve).
------------------------------------------------------------ */
+/* Recupera la sesión al recargar:
+   - Si AuthContext ya tiene usuario, habilita navegación.
+   - Si existe token en almacenamiento, consulta /auth/me para validar y reconstruir el usuario.
+   - Si /auth/me falla, limpia credenciales y fuerza login. */
 function useSessionBootstrap() {
   const ctx = useAuth?.() || {};
   const { user, loading, setUser } = ctx;
@@ -42,35 +41,39 @@ function useSessionBootstrap() {
     let cancelled = false;
 
     async function run() {
-      // Si el AuthProvider ya tiene user, ok
       if (user) {
         if (!cancelled) setState({ loading: false, ok: true, me: user });
         return;
       }
-      // Si no hay token, no hay sesión
+
       const token = getToken();
       if (!token) {
         if (!cancelled) setState({ loading: false, ok: false, me: null });
         return;
       }
-      // Validar/recuperar usuario
+
       try {
         const { data } = await api.get('/auth/me');
+
+        // Mantiene sincronizado el AuthContext si expone setUser
         if (setUser) {
           try {
             setUser(data);
           } catch {}
         }
+
         if (!cancelled) setState({ loading: false, ok: true, me: data });
-        // Guarda en ventana para RequireRole si hiciera falta
+
+        // Apoyo para validaciones fuera de contexto si existieran
         if (typeof window !== 'undefined') window.__me = data;
       } catch {
+        // Token inválido/expirado: se elimina para evitar bucles de navegación
         clearAuth();
         if (!cancelled) setState({ loading: false, ok: false, me: null });
       }
     }
 
-    // Si el AuthProvider aún está cargando, esperamos a que termine.
+    // Si el provider aún está resolviendo estado inicial, se difiere el bootstrap
     if (loading) {
       setState((s) => ({ ...s, loading: true }));
       const id = setTimeout(run, 0);
@@ -89,7 +92,9 @@ function useSessionBootstrap() {
   return state; // { loading, ok, me }
 }
 
-/* ---------- Guards ---------- */
+/* Protege rutas autenticadas:
+   - Mientras se valida sesión, muestra estado de carga.
+   - Si no hay sesión válida, redirige a /login. */
 function PrivateRoute({ children }) {
   const boot = useSessionBootstrap();
   if (boot.loading) return <div style={{ padding: 24 }}>Cargando…</div>;
@@ -97,9 +102,9 @@ function PrivateRoute({ children }) {
   return <Navigate to="/login" replace />;
 }
 
-/** Si hay roles requeridos, valida contra el usuario “bootstrapped”.
- *  Si AuthContext todavía no tiene user pero /auth/me sí, igual permite.
- */
+/* Protección por rol:
+   - Acepta un rol único o un listado de roles permitidos.
+   - Si el rol del usuario no coincide, redirige al inicio. */
 function RequireRole({ role, roles, children }) {
   const boot = useSessionBootstrap();
   if (boot.loading) return <div style={{ padding: 24 }}>Cargando…</div>;
@@ -117,14 +122,15 @@ function RequireRole({ role, roles, children }) {
   return children;
 }
 
-/* ---------- App ---------- */
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          {/* Ruta pública */}
           <Route path="/login" element={<Login />} />
 
+          {/* Área privada: Layout + rutas anidadas */}
           <Route
             path="/"
             element={
@@ -134,8 +140,7 @@ export default function App() {
             }
           >
             <Route index element={<Home />} />
-
-            {/* Solo ADMIN */}
+            {/* Módulos restringidos a ADMIN */}
             <Route
               path="materias-primas"
               element={
@@ -149,14 +154,6 @@ export default function App() {
               element={
                 <RequireRole role="ADMIN">
                   <Recetas />
-                </RequireRole>
-              }
-            />
-            <Route
-              path="salidas-pt"
-              element={
-                <RequireRole roles={['ADMIN', 'PRODUCCION']}>
-                  <SalidasPT />
                 </RequireRole>
               }
             />
@@ -200,8 +197,7 @@ export default function App() {
                 </RequireRole>
               }
             />
-
-            {/* PT */}
+            {/* Módulos PT */}
             <Route
               path="empaques"
               element={
@@ -234,8 +230,15 @@ export default function App() {
                 </RequireRole>
               }
             />
-
-            {/* EXISTENTE: Flujo de congelados */}
+            {/* Flujos compartidos (ADMIN y PRODUCCION) */}
+            <Route
+              path="salidas-pt"
+              element={
+                <RequireRole roles={['ADMIN', 'PRODUCCION']}>
+                  <SalidasPT />
+                </RequireRole>
+              }
+            />
             <Route
               path="congelados"
               element={
@@ -244,8 +247,6 @@ export default function App() {
                 </RequireRole>
               }
             />
-
-            {/* NUEVO: Cultivos (masa madre) */}
             <Route
               path="cultivos"
               element={
@@ -254,8 +255,6 @@ export default function App() {
                 </RequireRole>
               }
             />
-
-            {/* Producción: ADMIN y PRODUCCION */}
             <Route
               path="produccion"
               element={
@@ -264,6 +263,7 @@ export default function App() {
                 </RequireRole>
               }
             />
+            {/* Reporte/administración de producciones (solo ADMIN) */}
             <Route
               path="producciones"
               element={
@@ -272,13 +272,12 @@ export default function App() {
                 </RequireRole>
               }
             />
-
-            {/* Redirecciones de rutas antiguas */}
+            /* Redirecciones para compatibilidad con rutas antiguas usadas por usuarios/bookmarks */
             <Route path="ingreso-pt" element={<Navigate to="/stock-pt" replace />} />
             <Route path="lotes-pt" element={<Navigate to="/stock-pt" replace />} />
           </Route>
 
-          {/* Fallback */}
+          {/* Ruta no encontrada: redirige al home (si no hay sesión, PrivateRoute llevará a /login) */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

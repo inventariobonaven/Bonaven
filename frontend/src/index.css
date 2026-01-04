@@ -1,6 +1,6 @@
-/* ============================================
-   RESET GLOBAL SEGURO
-   ============================================ */
+/* Reset básico para consistencia entre navegadores.
+   - box-sizing evita cálculos inesperados de ancho/alto.
+   - -webkit-user-drag evita arrastrar elementos (especialmente imágenes) en WebKit. */
 *,
 *::before,
 *::after {
@@ -8,17 +8,21 @@
   -webkit-user-drag: none;
 }
 
+/* Evita traducciones automáticas del navegador/servicios (cuando están habilitados). */
 html {
-  /* Evita traducciones automáticas */
   translate: no;
 }
 
 body {
+  /* Valores base de layout y tipografía global. */
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+
   background: #ffffff;
   color: #213547;
+
+  /* Stack de fuentes del sistema para rendimiento y consistencia. */
   font-family:
     system-ui,
     -apple-system,
@@ -28,17 +32,17 @@ body {
     Arial,
     'Apple Color Emoji',
     'Segoe UI Emoji';
+
+  /* Mejora el rendering de texto en distintos navegadores. */
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  /* Evita autocompletar inteligente que mete texto basura */
+  /* Mantiene el tamaño de texto estable en móviles. */
   -webkit-text-size-adjust: 100%;
 }
 
-/* ============================================
-   TIPOGRAFÍA BASE
-   ============================================ */
+/* Estilos base de títulos: control de margen y jerarquía visual. */
 h1,
 h2,
 h3 {
@@ -46,13 +50,12 @@ h3 {
   font-weight: 700;
 }
 
+/* Evita márgenes por defecto en párrafos. */
 p {
   margin: 0;
 }
 
-/* ============================================
-   ENLACES
-   ============================================ */
+/* Enlaces con estilo discreto y hover accesible. */
 a {
   color: #646cff;
   text-decoration: none;
@@ -61,9 +64,7 @@ a:hover {
   text-decoration: underline;
 }
 
-/* ============================================
-   FORMULARIOS
-   ============================================ */
+/* Inputs con tipografía heredada para consistencia con el resto de la UI. */
 input,
 select,
 textarea {
@@ -73,9 +74,9 @@ textarea {
   padding: 6px 8px;
 }
 
-/* ============================================
-   TABLAS – MODO BLINDADO
-   ============================================ */
+/* Estilos base para tablas:
+   - table-layout: fixed + ellipsis controla desbordes y evita saltos de layout.
+   - border-collapse mejora la continuidad de bordes. */
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -91,7 +92,7 @@ textarea {
   text-align: left;
   border-bottom: 1px solid #e5e7eb;
 
-  /* No permitir líneas largas */
+  /* Encabezados sin salto: mantiene la fila compacta y consistente. */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -101,33 +102,30 @@ textarea {
   padding: 10px 12px;
   border-top: 1px solid #e5e7eb;
 
-  /* 🔥 ANTI TEXTO EXTRAÑO / ANTI CAMBIOS AUTOMÁTICOS */
-  white-space: nowrap; /* No saltar líneas */
-  overflow: hidden; /* Oculta si excede */
-  text-overflow: ellipsis; /* Añade … si se desborda */
-  word-break: keep-all; /* No romper palabras */
-  hyphens: none; /* No guiones automáticos */
+  /* Celdas sin salto para evitar filas de altura variable y texto desordenado. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  /* Evita cortes/guiones automáticos que alteren el contenido visible. */
+  word-break: keep-all;
+  hyphens: none;
   -webkit-hyphens: none;
   -ms-hyphens: none;
 
-  /* Evita zoom raro en móviles */
+  /* Mantiene tamaño de texto estable en móviles. */
   -webkit-text-size-adjust: 100%;
 }
 
-/* ============================================
-   OPCIONAL: celdas que SÍ deben permitir texto largo
-   (ej: Observaciones)
-   ============================================ */
+/* Clase para celdas donde sí se permite texto largo. */
 .wrap {
   white-space: normal !important;
   overflow: visible !important;
-  text-overflow: clip !important; /* sin “…” */
+  text-overflow: clip !important;
   word-break: break-word !important;
 }
 
-/* ============================================
-   UTILIDADES
-   ============================================ */
+/* Utilidades para controlar el comportamiento de texto sin repetir reglas. */
 .nowrap {
   white-space: nowrap !important;
 }
@@ -137,9 +135,8 @@ textarea {
   text-overflow: ellipsis;
 }
 
-/* ============================================
-   ANTI-TRADUCCIÓN (extra seguro)
-   ============================================ */
+/* Bloque anti-traducción:
+   Aplica a elementos críticos para evitar que traducción automática altere valores/etiquetas. */
 .notranslate,
 table,
 thead,

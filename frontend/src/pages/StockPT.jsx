@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/client';
 
-/* ================= UI helpers ================= */
+/* Reutilizables de UI: estandarizan feedback y confirmaciones en operaciones CRUD. */
 function Toast({ type = 'success', message, onClose }) {
   if (!message) return null;
   return (
@@ -46,6 +46,7 @@ function Modal({ open, title, children, onClose }) {
       }}
       onClick={onClose}
     >
+      {/* stopPropagation evita cerrar el modal al hacer click dentro del contenido */}
       <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0 }}>{title}</h3>
@@ -59,6 +60,7 @@ function Modal({ open, title, children, onClose }) {
   );
 }
 
+/* Confirmación explícita para acciones sensibles (eliminar / cambios de estado). */
 function Confirm({ open, title = 'Confirmar', message, onCancel, onConfirm }) {
   if (!open) return null;
   return (
@@ -76,11 +78,11 @@ function Confirm({ open, title = 'Confirmar', message, onCancel, onConfirm }) {
   );
 }
 
-/* =============== Helpers de orden y presentaciones =============== */
+/* Orden alfabético estable e insensible a acentos/mayúsculas para selects. */
 const collator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
 const byNombre = (a, b) => collator.compare(String(a?.nombre || ''), String(b?.nombre || ''));
 
-/** Detecta el tamaño de paquete / unidades por empaque en distintas formas posibles */
+/* Unifica la lectura de "unidades por empaque" desde respuestas heterogéneas (joins/endpoints distintos). */
 function extractCantidadPresentacion(obj) {
   if (!obj) return 0;
   const n0 = Number(obj?.unidades_por_empaque);
@@ -94,7 +96,6 @@ function extractCantidadPresentacion(obj) {
   return 0;
 }
 
-/* ================= Formularios ================= */
 const emptyForm = {
   producto_id: '',
   codigo: '',
@@ -106,6 +107,8 @@ const emptyForm = {
 
 function LotePTForm({ productos, initial = emptyForm, onSubmit, submitting }) {
   const [form, setForm] = useState(initial);
+
+  /* Normaliza valores iniciales cada vez que se abre el modal o cambia initial. */
   useEffect(() => setForm({ ...emptyForm, ...initial }), [initial]);
 
   const prodOpts = useMemo(
@@ -113,6 +116,7 @@ function LotePTForm({ productos, initial = emptyForm, onSubmit, submitting }) {
     [productos],
   );
 
+  /* Validación mínima en cliente: reduce errores y evita roundtrips innecesarios. */
   const canSubmit =
     String(form.producto_id || '') !== '' &&
     String(form.codigo || '').trim().length >= 1 &&
@@ -129,10 +133,12 @@ function LotePTForm({ productos, initial = emptyForm, onSubmit, submitting }) {
   function submit(e) {
     e.preventDefault();
     if (!canSubmit) return;
+
+    /* Payload tipado/normalizado: evita enviar basura (espacios, strings no numéricos). */
     onSubmit({
       producto_id: Number(form.producto_id),
       codigo: String(form.codigo).trim(),
-      cantidad: String(Number(form.cantidad)), // entero
+      cantidad: String(Number(form.cantidad)),
       fecha_ingreso: form.fecha_ingreso,
       etapa_destino: form.etapa_destino,
       ...(form.fecha_vencimiento ? { fecha_vencimiento: form.fecha_vencimiento } : {}),
@@ -214,7 +220,10 @@ function LotePTForm({ productos, initial = emptyForm, onSubmit, submitting }) {
   );
 }
 
-/* ======= Editar (con ajuste de cantidad, paquetes y ETAPA) ======= */
+/* Editor de lote:
+   - Permite ajustar por unidades o por paquetes (si existe unidades por empaque).
+   - Calcula delta y envía cantidad final para que el backend registre el movimiento/auditoría.
+   - Permite cambiar etapa del lote según el flujo (horneo/empaque/congelado). */
 function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
   const udsActuales = Math.round(Number(lote?.cantidad || 0));
   const uxe = Number(unidadesPorEmpaque || 0);
@@ -227,7 +236,7 @@ function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
     cantidadPkgs: uxe > 0 ? String(Math.floor(udsActuales / uxe)) : '',
     cantidadUd: uxe > 0 ? String(udsActuales % uxe) : String(udsActuales),
     motivo: '',
-    etapa: String(lote?.etapa || 'EMPAQUE'), // 👈 NUEVO
+    etapa: String(lote?.etapa || 'EMPAQUE'),
   });
 
   useEffect(() => {
@@ -240,7 +249,7 @@ function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
       cantidadPkgs: uxe > 0 ? String(Math.floor(uds / uxe)) : '',
       cantidadUd: uxe > 0 ? String(uds % uxe) : String(uds),
       motivo: '',
-      etapa: String(lote?.etapa || 'EMPAQUE'), // 👈 NUEVO
+      etapa: String(lote?.etapa || 'EMPAQUE'),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lote?.id, uxe]);
@@ -250,13 +259,12 @@ function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
     return Number.isFinite(x) ? Math.max(0, Math.round(x)) : 0;
   }
 
-  // Unidades objetivo (según venderPor)
   const targetUd =
     form.venderPor === 'PAQUETES'
       ? toIntSafe(form.cantidadPkgs) * uxe + toIntSafe(form.cantidadUd)
       : toIntSafe(form.cantidadUd);
 
-  const delta = targetUd - udsActuales; // +/- para el ajuste
+  const delta = targetUd - udsActuales;
 
   const canSubmit =
     String(form.codigo || '').trim().length >= 1 &&
@@ -272,8 +280,9 @@ function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
     e.preventDefault();
     if (!canSubmit) return;
 
-    // Solo enviar lo que cambió
+    /* Envía únicamente campos modificados para evitar sobrescrituras y reducir payload. */
     const updates = {};
+
     if (String(form.codigo).trim() !== String(lote?.codigo || '')) {
       updates.codigo = String(form.codigo).trim();
     }
@@ -282,19 +291,17 @@ function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
     }
     const origVence = lote?.fecha_vencimiento?.slice?.(0, 10) || '';
     if (form.fecha_vencimiento !== origVence) {
-      // Si lo vaciaron explícitamente => null. Si no se tocó, no lo mandamos.
       updates.fecha_vencimiento = form.fecha_vencimiento ? form.fecha_vencimiento : null;
     }
-    // 👇 NUEVO: cambio de ETAPA
     if (form.etapa !== String(lote?.etapa || '')) {
       updates.etapa = form.etapa;
     }
 
     onSubmit({
-      updates, // { codigo?, fecha_ingreso?, fecha_vencimiento?, etapa? }
-      deltaCantidad: delta, // +/- (0 si no cambió)
+      updates,
+      deltaCantidad: delta,
       motivo: form.motivo?.trim() || undefined,
-      targetUd, // unidades finales
+      targetUd,
     });
   }
 
@@ -342,7 +349,6 @@ function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
           />
         </div>
 
-        {/* ---- Etapa ---- */}
         <div>
           <label>Etapa</label>
           <select name="etapa" value={form.etapa} onChange={handleChange}>
@@ -352,7 +358,6 @@ function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
           </select>
         </div>
 
-        {/* ---- Ajuste de cantidad ---- */}
         <div>
           <label>Editar cantidad por</label>
           <select name="venderPor" value={form.venderPor} onChange={handleChange}>
@@ -429,7 +434,6 @@ function EditLoteForm({ lote, unidadesPorEmpaque, onSubmit, submitting }) {
   );
 }
 
-/* ================= Página ================= */
 export default function StockPT() {
   const [lotes, setLotes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -445,17 +449,14 @@ export default function StockPT() {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [toDelete, setToDelete] = useState(null);
 
-  // Edit
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState(null);
 
-  // filtros
   const [filters, setFilters] = useState({ q: '', estado: 'all', producto_id: '', etapa: 'all' });
 
-  // mapa producto_id -> unidades_por_empaque
+  /* Cache producto_id -> unidades_por_empaque para renderizar en paquetes y evitar consultas repetidas. */
   const [presMap, setPresMap] = useState(new Map());
 
-  /* ---- API ---- */
   async function loadLotes() {
     setLoading(true);
     try {
@@ -469,7 +470,6 @@ export default function StockPT() {
       const rows = Array.isArray(data) ? data : [];
       setLotes(rows);
 
-      // Completar mapa con info llegada por join (si existe)
       setPresMap((prev) => {
         const m = new Map(prev);
         for (const l of rows) {
@@ -494,7 +494,6 @@ export default function StockPT() {
       const arr = Array.isArray(data) ? data.slice().sort(byNombre) : [];
       setProductos(arr);
 
-      // Semillar mapa desde productos
       const map = new Map();
       for (const p of arr) {
         const n = extractCantidadPresentacion(p);
@@ -513,11 +512,14 @@ export default function StockPT() {
     }
   }
 
+  /* Carga inicial. */
   useEffect(() => {
     loadLotes();
     loadProductos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* Recarga de lotes al cambiar filtros "estructurales" (estado/producto/etapa). */
   useEffect(() => {
     loadLotes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -540,13 +542,14 @@ export default function StockPT() {
     }
   }
 
-  // Guarda edición: un solo PUT (meta + ajuste de cantidad)
+  /* Guarda edición en un solo PUT:
+     - Metadatos del lote (código/fechas/etapa).
+     - Si cambió cantidad, se envía la cantidad final y el backend registra el movimiento de ajuste. */
   async function guardarEdicionLote(lote, { updates, deltaCantidad, motivo, targetUd }) {
     setSubmitting(true);
     try {
       const payload = { ...(updates || {}) };
 
-      // si cambió la cantidad, manda la FINAL + motivo/fecha del ajuste (el backend registra el movimiento)
       if (Number(deltaCantidad) !== 0) {
         payload.cantidad = Number(targetUd);
         if (motivo) payload.motivo_ajuste = motivo;
@@ -571,7 +574,7 @@ export default function StockPT() {
 
   async function toggleEstado(id) {
     try {
-      const { data } = await api.patch(`/stock-pt/lotes/${id}/estado`, {}); // toggle simple
+      const { data } = await api.patch(`/stock-pt/lotes/${id}/estado`, {});
       const estado = data?.lote?.estado ?? data?.estado;
       setToast({
         type: 'success',
@@ -599,7 +602,6 @@ export default function StockPT() {
     }
   }
 
-  /* ---- Filtro texto + etapa (en cliente) ---- */
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
     const etapa = String(filters.etapa || 'all').toUpperCase();
@@ -622,10 +624,9 @@ export default function StockPT() {
     });
   }, [filtered]);
 
-  // productos ordenados para selects
   const productosOrdenados = useMemo(() => [...(productos || [])].sort(byNombre), [productos]);
 
-  /* ---- Cantidad render (pkg + ud) ---- */
+  /* Render en "paquetes + unidades" cuando hay unidades por empaque y la etapa lo permite. */
   function renderCantidad(l) {
     const totalUd = Math.round(Number(l?.cantidad) || 0);
     const etapa = String(l?.etapa || '').toUpperCase();
@@ -643,7 +644,6 @@ export default function StockPT() {
     return `${totalUd} ud`;
   }
 
-  /* ---- UI ---- */
   const header = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div>
@@ -668,11 +668,7 @@ export default function StockPT() {
     return (
       <span
         className="badge"
-        style={{
-          background: style.bg,
-          border: '1px solid ' + style.border,
-          color: style.color,
-        }}
+        style={{ background: style.bg, border: '1px solid ' + style.border, color: style.color }}
       >
         {estado}
       </span>
@@ -690,7 +686,6 @@ export default function StockPT() {
       <div className="card">
         {header}
 
-        {/* Filtros */}
         <div
           className="filters"
           style={{
@@ -738,7 +733,6 @@ export default function StockPT() {
           </select>
         </div>
 
-        {/* Tabla */}
         <div style={{ marginTop: 12 }}>
           <table className="table">
             <thead>
@@ -819,7 +813,6 @@ export default function StockPT() {
         </div>
       </div>
 
-      {/* Modal Crear */}
       <Modal
         open={modalOpen}
         title="Registrar lote de Producto Terminado"
@@ -839,7 +832,6 @@ export default function StockPT() {
         )}
       </Modal>
 
-      {/* Modal Editar */}
       <Modal
         open={editOpen}
         title={`Editar lote #${editing?.id || ''}`}
@@ -860,7 +852,6 @@ export default function StockPT() {
         )}
       </Modal>
 
-      {/* Confirmación eliminar */}
       <Confirm
         open={confirmDeleteOpen}
         title="Eliminar lote"
@@ -872,7 +863,6 @@ export default function StockPT() {
         onConfirm={() => deleteLote(toDelete.id)}
       />
 
-      {/* Toast */}
       <Toast
         type={toast.type}
         message={toast.message}

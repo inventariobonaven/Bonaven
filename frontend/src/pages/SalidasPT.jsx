@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/client';
 
-/* ====== UI helpers (mismo estilo) ====== */
+/* UI helpers reutilizables:
+   Centralizan feedback (toast) y contenedor modal para acciones de registro, manteniendo consistencia visual/UX. */
 function Toast({ type = 'success', message, onClose }) {
   if (!message) return null;
   return (
@@ -46,6 +47,7 @@ function Modal({ open, title, children, onClose }) {
       }}
       onClick={onClose}
     >
+      {/* stopPropagation evita cerrar el modal al hacer click dentro del contenido */}
       <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0 }}>{title}</h3>
@@ -59,7 +61,9 @@ function Modal({ open, title, children, onClose }) {
   );
 }
 
-/* ===== Helpers de formato ===== */
+/* Helpers de formato/normalización:
+   - Evitan NaN y garantizan enteros al mostrar cantidades.
+   - Unifican presentación de etapa y cantidades por empaque (paquetes + unidades). */
 function toInt(n) {
   const x = Number(n);
   return Number.isFinite(x) ? Math.round(x) : 0;
@@ -77,6 +81,9 @@ function formatCantidadLote(l) {
   const etapa = String(l.etapa || '').toUpperCase();
   const uds = toInt(l.cantidad);
   const uxe = Number(l.productos_terminados?.unidades_por_empaque || 0);
+
+  /* Regla de negocio de visualización:
+     Solo en EMPAQUE/HORNEO tiene sentido descomponer en paquetes (si el producto define unidades_por_empaque). */
   if ((etapa === 'EMPAQUE' || etapa === 'HORNEO') && uxe > 0) {
     const pkg = Math.floor(uds / uxe);
     const rest = uds % uxe;
@@ -87,7 +94,10 @@ function formatCantidadLote(l) {
   return `${uds} ud`;
 }
 
-/* ====== Modal de registro de Salida PT ====== */
+/* Modelo del formulario:
+   - modo FIFO: el backend decide qué lotes descontar en orden FIFO (y opcionalmente prioriza etapa).
+   - modo LOTE: el usuario elige el lote exacto (salida manual).
+   - venderPor: permite registrar salida por unidades o por paquetes (requiere unidades_por_empaque). */
 const emptySalida = {
   producto_id: '',
   modo: 'FIFO', // FIFO | LOTE
@@ -109,21 +119,29 @@ function SalidaPTForm({
   submitting,
 }) {
   const [form, setForm] = useState(initial);
+
+  /* Sincroniza el estado local cuando cambian valores iniciales (ej. reabrir modal/limpiar formulario). */
   useEffect(() => setForm(initial), [initial]);
 
-  // Collator ES para ordenar alfabeticamente (ignora acentos/mayúsculas, orden natural)
+  /* Collator ES:
+     Garantiza orden consistente en selects (ignorando acentos/mayúsculas y usando orden natural). */
   const collatorEs = useMemo(
     () => new Intl.Collator('es', { sensitivity: 'base', numeric: true }),
     [],
   );
 
-  // producto seleccionado (para unidades_por_empaque)
+  /* Producto seleccionado:
+     Se usa para leer unidades_por_empaque y validar "vender por paquetes". */
   const prodSel =
     Array.isArray(productos) && productos.find((p) => String(p.id) === String(form.producto_id));
   const unidadesPorEmpaque = Number(prodSel?.unidades_por_empaque || 0);
 
   const isEnteroPositivo = (v) => Number.isInteger(Number(v)) && Number(v) > 0;
 
+  /* Validación crítica antes de enviar:
+     - En modo LOTE exige lote_id.
+     - En modo PAQUETES exige unidades_por_empaque configuradas.
+     - Evita enviar cantidades vacías/negativas al backend. */
   const canSubmit =
     String(form.producto_id || '') !== '' &&
     String(form.fecha || '') !== '' &&
@@ -141,17 +159,25 @@ function SalidaPTForm({
   function handleChange(e) {
     const { name, value } = e.target;
 
+    /* Cambio de producto:
+       - Resetea lote seleccionado.
+       - Dispara carga de lotes disponibles del producto (solo para modo LOTE). */
     if (name === 'producto_id') {
       setForm((f) => ({ ...f, producto_id: value, lote_id: '' }));
       onChangeProducto(value);
       return;
     }
 
+    /* Cambio de modo:
+       - En FIFO no se usa lote_id (se limpia para evitar inconsistencias).
+       - En LOTE se mantiene/permite seleccionar lote. */
     if (name === 'modo') {
       setForm((f) => ({ ...f, modo: value, lote_id: value === 'FIFO' ? '' : f.lote_id }));
       return;
     }
 
+    /* Cambio venderPor:
+       - Evita que queden ambas entradas diligenciadas (unidades y paquetes) al mismo tiempo. */
     if (name === 'venderPor') {
       setForm((f) =>
         value === 'UNIDADES'
@@ -168,6 +194,9 @@ function SalidaPTForm({
     e.preventDefault();
     if (!canSubmit) return;
 
+    /* Modo LOTE:
+       Se envía lote_id y cantidad en UNIDADES (normalizada).
+       Si el usuario vende por paquetes, se convierte a unidades aquí para que el backend procese siempre una sola unidad de medida. */
     if (form.modo === 'LOTE') {
       const cantidadUnidades =
         form.venderPor === 'UNIDADES'
@@ -185,6 +214,11 @@ function SalidaPTForm({
       return;
     }
 
+    /* Modo FIFO:
+       Se envía producto_id y una de estas dos opciones:
+       - cantidad (unidades) o
+       - paquetes (para que el backend convierta/considere presentación).
+       Además permite etapa_preferida para intentar descontar primero de EMPAQUE u HORNEO si existe stock ahí. */
     const base = {
       producto_id: Number(form.producto_id),
       fecha: form.fecha,
@@ -203,7 +237,8 @@ function SalidaPTForm({
     onSubmit(payload);
   }
 
-  // Opciones ORDENADAS
+  /* Opciones ordenadas:
+     Mejora UX y consistencia entre pantallas (listas alfabéticas). */
   const prodOpts = useMemo(
     () =>
       [...(Array.isArray(productos) ? productos : [])].sort((a, b) =>
@@ -353,7 +388,10 @@ function SalidaPTForm({
   );
 }
 
-/* ====== Página ====== */
+/* Pantalla Salidas PT:
+   - Muestra lotes "vendibles" como referencia: solo DISPONIBLE y etapa EMPAQUE/HORNEO.
+   - El registro real se hace por POST /pt/salidas (FIFO o por lote).
+   - Se recarga tabla y lotes del formulario tras registrar una salida para mantener consistencia de stock. */
 export default function SalidasPT() {
   const [productos, setProductos] = useState([]);
   const [loadingProductos, setLoadingProductos] = useState(true);
@@ -392,6 +430,9 @@ export default function SalidasPT() {
       if (filters.producto_id) params.set('producto_id', String(filters.producto_id));
       const { data } = await api.get(`/pt/lotes?${params.toString()}`);
       const arr = Array.isArray(data) ? data : [];
+
+      /* Regla de negocio (vendibles en esta pantalla):
+         Solo se listan lotes DISPONIBLE y etapa EMPAQUE/HORNEO (CONGELADO no es vendible aquí). */
       const vendibles = arr.filter(
         (l) =>
           l.estado === 'DISPONIBLE' &&
@@ -407,17 +448,21 @@ export default function SalidasPT() {
     }
   }
 
+  /* Carga inicial de catálogos y lotes vendibles. */
   useEffect(() => {
     loadProductos();
     loadLotes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* Recarga cuando cambia el filtro de producto (server-side). */
   useEffect(() => {
     loadLotes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.producto_id]);
 
-  // Lotes DISPONIBLES para el formulario cuando el usuario elige producto
+  /* Carga de lotes disponibles para el formulario (cuando se selecciona producto):
+     Se filtra a vendibles para evitar que el usuario intente sacar de lotes no aptos. */
   async function onChangeProductoForm(prodId) {
     if (!prodId) {
       setLotesDeProducto([]);
@@ -441,6 +486,9 @@ export default function SalidasPT() {
     }
   }
 
+  /* Registro de salida:
+     - POST /pt/salidas recibe payload FIFO o por lote.
+     - Al finalizar, se recarga la tabla y (si aplica) los lotes del producto del formulario para reflejar el nuevo stock. */
   async function registrarSalida(payload) {
     setSubmitting(true);
     try {
@@ -461,6 +509,7 @@ export default function SalidasPT() {
     }
   }
 
+  /* Filtro en cliente (texto) para la tabla, sobre los lotes vendibles ya cargados. */
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
     return lotes.filter((l) => {
@@ -472,6 +521,7 @@ export default function SalidasPT() {
     });
   }, [lotes, filters.q]);
 
+  /* Orden descendente por fecha de ingreso (y por id como tie-break) para mostrar lo más reciente primero. */
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
       const da = new Date(a.fecha_ingreso || 0).getTime();
@@ -481,7 +531,7 @@ export default function SalidasPT() {
     });
   }, [filtered]);
 
-  // Collator y listas ORDENADAS para selects de filtro
+  /* Collator y productos ordenados para el select de filtros. */
   const collatorEs = useMemo(
     () => new Intl.Collator('es', { sensitivity: 'base', numeric: true }),
     [],
@@ -520,7 +570,9 @@ export default function SalidasPT() {
       <div className="card">
         {header}
 
-        {/* Filtros */}
+        {/* Filtros:
+           - q filtra en cliente por código o nombre de producto.
+           - producto_id filtra en servidor (recarga loadLotes con query param). */}
         <div
           className="filters"
           style={{ marginTop: 12, display: 'grid', gap: 8, gridTemplateColumns: '1fr 240px' }}
@@ -543,7 +595,8 @@ export default function SalidasPT() {
           </select>
         </div>
 
-        {/* Tabla de lotes disponibles (para referencia) */}
+        {/* Tabla de lotes disponibles (referencia operativa):
+           Lista únicamente lotes vendibles (DISPONIBLE + etapa EMPAQUE/HORNEO). */}
         <div style={{ marginTop: 12 }}>
           <table className="table">
             <thead>
@@ -603,7 +656,8 @@ export default function SalidasPT() {
         </div>
       </div>
 
-      {/* Modal salida */}
+      {/* Modal salida:
+         El formulario arma el payload (FIFO o LOTE) y este componente lo envía a /pt/salidas. */}
       <Modal
         open={modalOpen}
         title="Registrar salida de PT"
@@ -627,7 +681,7 @@ export default function SalidasPT() {
         )}
       </Modal>
 
-      {/* Toast */}
+      {/* Toast centralizado para éxito/error en cargas y registro. */}
       <Toast
         type={toast.type}
         message={toast.message}

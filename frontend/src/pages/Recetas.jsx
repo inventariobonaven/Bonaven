@@ -3,11 +3,14 @@ import { useEffect, useMemo, useState } from 'react';
 import api from '../api/client';
 import { listarMapPorReceta, crearMap, actualizarMap, eliminarMap } from '../api/pt';
 
-/* ===== util: orden alfabético robusto ===== */
+/* Orden alfabético consistente (ES):
+   - Ignora acentos/mayúsculas
+   - numeric:true ordena “10” después de “2” */
 const collator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
 const byNombre = (a, b) => collator.compare(String(a?.nombre || ''), String(b?.nombre || ''));
 
-/* ===== UI helpers ===== */
+/* Toast:
+   Mensajes no intrusivos para éxito/error. Se cierra manualmente para evitar perder el mensaje. */
 function Toast({ type = 'success', message, onClose }) {
   if (!message) return null;
   return (
@@ -36,6 +39,9 @@ function Toast({ type = 'success', message, onClose }) {
   );
 }
 
+/* Modal base:
+   - Click fuera cierra
+   - Click dentro NO cierra (stopPropagation) */
 function Modal({ open, title, children, onClose }) {
   if (!open) return null;
   return (
@@ -64,6 +70,8 @@ function Modal({ open, title, children, onClose }) {
   );
 }
 
+/* Confirm reutilizable:
+   - extra permite meter advertencias/bloques adicionales (ej: hard delete) */
 function Confirm({ open, title = 'Confirmar', message, onCancel, onConfirm, extra }) {
   if (!open) return null;
   return (
@@ -82,7 +90,11 @@ function Confirm({ open, title = 'Confirmar', message, onCancel, onConfirm, extr
   );
 }
 
-/* ===== MODAL: Mapeo Receta ↔️ Producto ===== */
+/* Modal: Mapeo Receta ↔ Producto terminado (PT)
+   Propósito:
+   - Una receta puede producir uno o varios productos PT.
+   - Guarda “unidades_por_batch” para calcular cuántas unidades salen por cada masa/batch.
+   - Guarda “vida_util_dias” para calcular vencimientos del PT (si tu backend lo usa). */
 function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
@@ -90,6 +102,7 @@ function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
   const [loadingProductos, setLoadingProductos] = useState(true);
   const [toast, setToast] = useState({ type: 'success', message: '' });
 
+  // Form interno del modal: crear/editar mapeo
   const emptyForm = {
     id: null,
     producto_id: '',
@@ -97,8 +110,12 @@ function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
     vida_util_dias: '0',
   };
   const [form, setForm] = useState(emptyForm);
-  const isEdit = form.id != null;
+  const isEdit = form.id != null; // si hay id => edición del mapeo existente
 
+  /* Cuando se abre el modal o cambia receta:
+     - resetea form
+     - carga catálogo de productos activos
+     - carga mapeos existentes de esa receta */
   useEffect(() => {
     if (!open || !receta?.id) return;
     setForm(emptyForm);
@@ -112,7 +129,7 @@ function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
     try {
       const { data } = await api.get(`/productos?estado=true`);
       const arr = Array.isArray(data) ? data.slice().sort(byNombre) : [];
-      setProductos(arr); // ORDEN ALFABÉTICO
+      setProductos(arr); // importante: orden alfabético en el select
     } catch {
       setProductos([]);
     } finally {
@@ -123,6 +140,7 @@ function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
   async function loadItems() {
     setLoading(true);
     try {
+      // API dedicada (../api/pt) para el mapeo receta-producto
       const { data } = await listarMapPorReceta(receta.id);
       setItems(Array.isArray(data) ? data : []);
     } catch (e) {
@@ -133,6 +151,10 @@ function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
     }
   }
 
+  /* Validación crítica:
+     - producto_id requerido
+     - unidades_por_batch entero positivo
+     - vida_util_dias entero >= 0 */
   const canSubmit =
     String(form.producto_id || '') !== '' &&
     Number.isInteger(Number(form.unidades_por_batch)) &&
@@ -145,6 +167,10 @@ function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
     setForm((f) => ({ ...f, [name]: value }));
   }
 
+  /* submit:
+     - si isEdit => PUT/PATCH del mapeo
+     - si no => crea mapeo para receta.id
+     - luego refresca tabla y notifica onChanged para refrescar la vista padre */
   async function submit(e) {
     e.preventDefault();
     if (!canSubmit) return;
@@ -172,6 +198,9 @@ function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
     }
   }
 
+  /* startEdit:
+     - fija el form con valores existentes
+     - bloquea el producto_id (disabled) para evitar “mover” el mapeo a otro producto */
   function startEdit(row) {
     setForm({
       id: row.id,
@@ -185,6 +214,8 @@ function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
     setForm(emptyForm);
   }
 
+  /* remove:
+     Confirmación rápida (window.confirm) para eliminar el mapeo. */
   async function remove(row) {
     if (!window.confirm(`Eliminar mapeo de ${row.producto?.nombre || `#${row.producto_id}`} ?`))
       return;
@@ -208,7 +239,9 @@ function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
       title={`Mapeos de productos — ${receta?.nombre || `Receta #${receta?.id}`}`}
       onClose={onClose}
     >
-      {/* Form */}
+      {/* Form:
+         - En creación permite elegir producto
+         - En edición bloquea producto y solo ajusta unidades/vida útil */}
       <form onSubmit={submit} style={{ marginTop: 12 }}>
         <div className="form-grid">
           <div>
@@ -282,7 +315,8 @@ function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
         </div>
       </form>
 
-      {/* Tabla */}
+      {/* Tabla de mapeos:
+         Lista rápida para editar/eliminar. */}
       <div style={{ marginTop: 16 }}>
         <table className="table">
           <thead>
@@ -340,7 +374,7 @@ function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
         </table>
       </div>
 
-      {/* Toast del modal */}
+      {/* Toast local del modal (independiente al toast global de la página) */}
       <Toast
         type={toast.type}
         message={toast.message}
@@ -350,7 +384,9 @@ function RecetaProductoMapModal({ open, onClose, receta, onChanged }) {
   );
 }
 
-/* ===== Formularios ===== */
+/* Form principal de receta:
+   - Crea/edita datos “cabecera” (nombre, estado, categoría, rendimiento).
+   - Los ingredientes se administran en un modal aparte para mantener la vista limpia. */
 const emptyReceta = {
   nombre: '',
   estado: true,
@@ -362,6 +398,9 @@ function RecetaForm({ initial = emptyReceta, onSubmit, submitting, categorias })
   const [form, setForm] = useState(initial);
   useEffect(() => setForm(initial), [initial]);
 
+  /* Validación clave:
+     - nombre mínimo 2
+     - rendimiento opcional pero si viene debe ser numérico y > 0 (permite decimales) */
   const canSubmit =
     String(form.nombre || '').trim().length >= 2 &&
     (!form.rendimiento_por_batch ||
@@ -373,6 +412,9 @@ function RecetaForm({ initial = emptyReceta, onSubmit, submitting, categorias })
     setForm((f) => ({ ...f, [name]: type === 'checkbox' ? checked : value }));
   }
 
+  /* Normalización de payload:
+     - categoria_id: número o null
+     - rendimiento_por_batch: string numérica o undefined si viene vacío */
   function submit(e) {
     e.preventDefault();
     if (!canSubmit) return;
@@ -385,7 +427,7 @@ function RecetaForm({ initial = emptyReceta, onSubmit, submitting, categorias })
     });
   }
 
-  // categorías ordenadas por nombre
+  // Categorías ordenadas (misma regla global de orden)
   const catOpts = useMemo(
     () => [...(Array.isArray(categorias) ? categorias : [])].sort(byNombre),
     [categorias],
@@ -452,26 +494,33 @@ function RecetaForm({ initial = emptyReceta, onSubmit, submitting, categorias })
   );
 }
 
-/* ===== Ingredientes ===== */
+/* Modal de Ingredientes:
+   - Gestiona relación Receta ↔ Materias primas (ingredientes).
+   - Solo permite INSUMOS activos (tipo=INSUMO) para mantener consistencia.
+   - Evita duplicados filtrando MPs ya usadas.
+   - Edita cantidades inline (sin abrir otro modal). */
 function IngredientesManager({ receta, open, onClose }) {
   const [materias, setMaterias] = useState([]);
   const [items, setItems] = useState([]); // ingredientes actuales
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState({ type: 'success', message: '' });
 
-  // form add
+  // Form add
   const [mpId, setMpId] = useState('');
   const [cantidad, setCantidad] = useState('');
 
-  // edición inline
+  // edición inline: { [ingredienteId]: { cantidadDisplay } }
   const [editMap, setEditMap] = useState({});
 
+  /* load:
+     - Carga catálogo de MP (solo INSUMO activos)
+     - Carga ingredientes de la receta
+     Se hace en paralelo para rapidez. */
   async function load() {
     if (!receta?.id) return;
     setLoading(true);
     try {
       const [M, I] = await Promise.all([
-        // Solo INSUMOS activos
         api.get('/materias-primas?estado=true&tipo=INSUMO'),
         api.get(`/recetas/${receta.id}/ingredientes`),
       ]);
@@ -490,6 +539,10 @@ function IngredientesManager({ receta, open, onClose }) {
     }
   }
 
+  /* Al abrir modal:
+     - limpia estado de inputs
+     - carga data actual
+     Nota: depende de open y receta.id */
   useEffect(() => {
     if (open) {
       setMpId('');
@@ -500,38 +553,48 @@ function IngredientesManager({ receta, open, onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, receta?.id]);
 
+  // IDs ya usados para bloquear duplicados (una MP no se repite dentro de la receta)
   const usedMpIds = new Set(items.map((i) => String(i.materia_prima_id)));
 
-  // opciones visibles: filtrar las ya usadas Y ordenar por nombre
+  // Opciones visibles del select: solo las no usadas y ordenadas por nombre
   const opcionesMp = useMemo(() => {
     return materias
       .filter((m) => !usedMpIds.has(String(m.id)))
       .slice()
       .sort(byNombre);
-  }, [materias, items]); // depende de materias e items (usedMpIds)
+  }, [materias, items]);
 
-  // Unidad canónica para mostrar/editar (g/ml/ud)
+  /* Unidad canónica:
+     Normaliza entrada/edición a 3 unidades UI:
+     - g (si base es g o kg)
+     - ml (si base es ml o l)
+     - ud (cualquier otro caso) */
   function canonicalUnitFor(base) {
     const b = String(base || '').toLowerCase();
     if (b === 'g' || b === 'kg') return 'g';
     if (b === 'ml' || b === 'l') return 'ml';
     return 'ud';
   }
+
   function toDisplay(q) {
     const n = Number(q);
     return Number.isFinite(n) ? n : 0;
   }
 
+  // MP seleccionada para sugerir unidad en placeholder
   const mpSel = materias.find((m) => String(m.id) === String(mpId));
   const displayUnitNew = canonicalUnitFor(mpSel?.unidad_medida);
 
+  /* addIng:
+     - Postea ingrediente con cantidad y unidad canónica (g/ml/ud)
+     - Recarga para reflejar tabla y bloquear MP recién usada */
   async function addIng() {
     if (!receta?.id || !mpId || !cantidad || Number(cantidad) <= 0) return;
     try {
       await api.post(`/recetas/${receta.id}/ingredientes`, {
         materia_prima_id: Number(mpId),
         cantidad: String(cantidad),
-        unidad: displayUnitNew, // "g" | "ml" | "ud"
+        unidad: displayUnitNew,
       });
       setMpId('');
       setCantidad('');
@@ -545,10 +608,15 @@ function IngredientesManager({ receta, open, onClose }) {
     }
   }
 
+  // Guarda el valor digitado para un ingrediente específico (edición inline)
   function setEditQty(ingId, val) {
     setEditMap((m) => ({ ...m, [ingId]: { cantidadDisplay: val } }));
   }
 
+  /* saveIng:
+     - Toma la cantidad editada (o la actual si no se tocó)
+     - Envía PUT al endpoint del ingrediente
+     - Limpia editMap de ese id para evitar “estado sucio” */
   async function saveIng(ing) {
     const unidadCanonica = canonicalUnitFor(ing.materias_primas?.unidad_medida);
     const val = editMap?.[ing.id]?.cantidadDisplay ?? toDisplay(ing.cantidad);
@@ -594,7 +662,10 @@ function IngredientesManager({ receta, open, onClose }) {
         <strong> ud</strong>. Se convierten automáticamente a la unidad base de la MP.
       </div>
 
-      {/* Add row */}
+      {/* Add row:
+         - 1) selecciona MP (solo INSUMOS activos y no usados)
+         - 2) escribe cantidad en unidad canónica sugerida
+         - 3) agrega */}
       <div
         className="card"
         style={{ padding: 12, display: 'grid', gap: 8, gridTemplateColumns: '1fr 180px auto' }}
@@ -621,7 +692,9 @@ function IngredientesManager({ receta, open, onClose }) {
         </button>
       </div>
 
-      {/* Listado */}
+      {/* Tabla ingredientes:
+         - input editable por fila
+         - botón Guardar por fila (no guarda “todo”, solo esa línea) */}
       <div style={{ marginTop: 12 }}>
         <table className="table">
           <thead>
@@ -650,7 +723,7 @@ function IngredientesManager({ receta, open, onClose }) {
             {!loading &&
               items.map((ing) => {
                 const unidadBase = ing.materias_primas?.unidad_medida || '';
-                const unidadShow = canonicalUnitFor(unidadBase); // g/ml/ud
+                const unidadShow = canonicalUnitFor(unidadBase);
                 const displayVal =
                   editMap?.[ing.id]?.cantidadDisplay ?? String(toDisplay(ing.cantidad));
                 return (
@@ -702,7 +775,11 @@ function IngredientesManager({ receta, open, onClose }) {
   );
 }
 
-/* ===== Página principal ===== */
+/* Página Recetas:
+   - CRUD de recetas (crear/editar)
+   - Activar/Inactivar (soft toggle)
+   - Hard delete (solo si el backend lo permite)
+   - Modales secundarios: Ingredientes y Mapeos PT */
 export default function Recetas() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -725,13 +802,18 @@ export default function Recetas() {
   const [ingMgrOpen, setIngMgrOpen] = useState(false);
   const [ingReceta, setIngReceta] = useState(null);
 
-  // NUEVO: modal mapeos PT
+  // Modal de mapeos PT (receta ↔ producto)
   const [mapOpen, setMapOpen] = useState(false);
   const [recetaSel, setRecetaSel] = useState(null);
 
-  // filtros
+  // Filtros: el server filtra por estado/categoría y opcionalmente por q
   const [filters, setFilters] = useState({ q: '', estado: 'all', categoria_id: '' });
 
+  /* load:
+     Consulta /recetas con query params:
+     - estado true/false según filtro
+     - q (texto)
+     - categoria_id */
   async function load() {
     setLoading(true);
     try {
@@ -749,11 +831,13 @@ export default function Recetas() {
     }
   }
 
+  /* loadCategorias:
+     Trae categorías activas y las ordena alfabéticamente (UX + consistencia). */
   async function loadCategorias() {
     setLoadingCats(true);
     try {
       const { data } = await api.get(`/categorias-receta?estado=true`);
-      const arr = Array.isArray(data) ? data.slice().sort(byNombre) : []; // ORDEN ALFABÉTICO
+      const arr = Array.isArray(data) ? data.slice().sort(byNombre) : [];
       setCategorias(arr);
     } catch {
       setCategorias([]);
@@ -763,11 +847,14 @@ export default function Recetas() {
     }
   }
 
+  // Carga inicial
   useEffect(() => {
     load();
     loadCategorias();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Recarga cuando cambian filtros que se aplican en backend (estado/categoría)
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -803,6 +890,8 @@ export default function Recetas() {
     }
   }
 
+  /* Toggle de estado:
+     Se confirma con modal para evitar desactivar por error. */
   async function toggleEstado(id, estadoActual) {
     try {
       const { data } = await api.patch(`/recetas/${id}/estado`, { estado: !estadoActual });
@@ -819,7 +908,9 @@ export default function Recetas() {
     }
   }
 
-  // Hard delete
+  /* Hard delete:
+     Eliminar definitivo (peligroso) → por eso hay confirm extra.
+     El backend puede impedirlo si hay referencias (producciones/uso histórico). */
   async function removeItemHard(id) {
     try {
       await api.delete(`/recetas/${id}?hard=true`);
@@ -836,6 +927,8 @@ export default function Recetas() {
     }
   }
 
+  /* Filtro en memoria (texto + estado + categoría):
+     Aunque ya hay filtros en backend, esto refuerza búsqueda por nombre de categoría incluida en el objeto receta. */
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
     const estado = filters.estado; // all | active | inactive
@@ -857,6 +950,7 @@ export default function Recetas() {
     });
   }, [items, filters]);
 
+  // Orden simple por id desc (recetas nuevas primero)
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => (b.id || 0) - (a.id || 0));
   }, [filtered]);
@@ -881,7 +975,9 @@ export default function Recetas() {
           </button>
         </div>
 
-        {/* Filtros */}
+        {/* Filtros:
+           - q (cliente + server) para búsqueda
+           - estado/categoría recargan desde backend para mantener dataset liviano */}
         <div
           className="filters"
           style={{ marginTop: 12, display: 'grid', gap: 8, gridTemplateColumns: '1fr 180px 220px' }}
@@ -912,7 +1008,9 @@ export default function Recetas() {
           </select>
         </div>
 
-        {/* Tabla */}
+        {/* Tabla principal:
+           - Ingredientes muestra conteo (detalle en modal)
+           - Acciones abren modales o disparan confirmaciones */}
         <div style={{ marginTop: 12 }}>
           <table className="table">
             <thead>
@@ -1033,7 +1131,8 @@ export default function Recetas() {
         </div>
       </div>
 
-      {/* Modal crear/editar receta */}
+      {/* Modal crear/editar receta:
+         Mantiene el CRUD principal (cabecera de receta). */}
       <Modal
         open={modalOpen}
         title={editing ? 'Editar receta' : 'Nueva receta'}
@@ -1057,7 +1156,8 @@ export default function Recetas() {
         )}
       </Modal>
 
-      {/* Ingredientes Manager */}
+      {/* Ingredientes Manager:
+         Al cerrar, hace load() para refrescar conteo de ingredientes en la tabla. */}
       <IngredientesManager
         receta={ingReceta}
         open={ingMgrOpen}
@@ -1068,15 +1168,17 @@ export default function Recetas() {
         }}
       />
 
-      {/* Modal de mapeos PT */}
+      {/* Modal de mapeos PT:
+         onChanged refresca listado para que el usuario vea que la receta ya tiene mapeos asociados. */}
       <RecetaProductoMapModal
         open={mapOpen}
         receta={recetaSel}
         onClose={() => setMapOpen(false)}
-        onChanged={() => load()} // refresca lista al cambiar mapeos
+        onChanged={() => load()}
       />
 
-      {/* Confirmaciones */}
+      {/* Confirm Hard delete:
+         Advertencia explícita para evitar borrado accidental. */}
       <Confirm
         open={confirmHardOpen}
         title="Eliminar definitivamente"
@@ -1105,6 +1207,8 @@ export default function Recetas() {
         }
       />
 
+      {/* Confirm Toggle estado:
+         Evita desactivar por error (impacta producción/selecciones). */}
       <Confirm
         open={confirmToggleOpen}
         title={toToggle?.estado ? 'Desactivar receta' : 'Activar receta'}
@@ -1120,7 +1224,7 @@ export default function Recetas() {
         onConfirm={() => toggleEstado(toToggle.id, toToggle.estado)}
       />
 
-      {/* Toast */}
+      {/* Toast global de la página (CRUD / cargas / estados) */}
       <Toast
         type={toast.type}
         message={toast.message}

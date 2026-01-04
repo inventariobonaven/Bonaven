@@ -1,61 +1,69 @@
-/* =====================================================================
-   VARIABLES / BASE
-   ===================================================================== */
+/* Variables globales de tema:
+   Centraliza colores, estados, tipografía y tokens de UI para mantener consistencia y facilitar cambios. */
 :root {
-  /* Paleta */
-  --bg:        #fffdf8;
-  --panel:     #fffdfa;
-  --ink:       #5a5a5a;
-  --muted:     #8c8c8c;
-  --border:    #f3e9dc;
-  --primary:   #ffd591;
+  --bg: #fffdf8;
+  --panel: #fffdfa;
+  --ink: #5a5a5a;
+  --muted: #8c8c8c;
+  --border: #f3e9dc;
+  --primary: #ffd591;
   --primary-2: #ffe7ba;
-  --accent:    #e6f7ff;
-  --rose:      #ffe6e6;
+  --accent: #e6f7ff;
+  --rose: #ffe6e6;
 
-  /* Estados */
   --success-bg: #f6ffed;
   --success-bd: #b7eb8f;
   --success-fg: #237804;
-  --danger-bg:  #fff2f0;
-  --danger-bd:  #ffccc7;
-  --danger-fg:  #a8071a;
+  --danger-bg: #fff2f0;
+  --danger-bd: #ffccc7;
+  --danger-fg: #a8071a;
 
-  /* Tipografía / espacios */
   --font-size-base: 16.5px;
   --radius: 12px;
   --radius-sm: 10px;
 
-  /* Misc */
-  --shadow: 0 8px 24px rgba(0,0,0,0.05);
-  --focus-ring: 0 0 0 3px rgba(255,213,145,0.25);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
+  --focus-ring: 0 0 0 3px rgba(255, 213, 145, 0.25);
   --speed: 160ms;
 }
 
-* { box-sizing: border-box; }
+/* Box-sizing uniforme para evitar desbordes y cálculos inconsistentes. */
+* {
+  box-sizing: border-box;
+}
 
-html, body { height: 100%; }
+/* Asegura altura completa para layouts con 100vh y centrado vertical. */
+html,
+body {
+  height: 100%;
+}
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  font-family:
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    Helvetica,
+    Arial;
   font-size: var(--font-size-base);
   background: var(--bg);
   color: var(--ink);
 }
 
-/* Utilidades */
-.muted { color: var(--muted); }
-.badge  {
+/* Utilidades básicas de texto y badges. */
+.muted {
+  color: var(--muted);
+}
+.badge {
   padding: 3px 8px;
   background: var(--accent);
   border-radius: 999px;
   font-size: 12px;
 }
 
-/* =====================================================================
-   LAYOUT (sidebar + contenido)
-   ===================================================================== */
+/* Layout principal: sidebar fija y contenido flexible. */
 .layout {
   display: grid;
   grid-template-columns: 240px 1fr;
@@ -67,9 +75,16 @@ body {
   border-right: 1px solid var(--border);
   padding: 18px 14px;
 }
-.brand { font-weight: 700; margin-bottom: 12px; }
+.brand {
+  font-weight: 700;
+  margin-bottom: 12px;
+}
 
-.sidebar nav { display: grid; gap: 8px; margin: 10px 0 14px; }
+.sidebar nav {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 14px;
+}
 .sidebar a {
   text-decoration: none;
   color: #444;
@@ -77,28 +92,39 @@ body {
   border-radius: var(--radius-sm);
   transition: background var(--speed) ease;
 }
-.sidebar a:hover { background: #ffffff70; }
-/* Si usas NavLink, esto activará el item actual */
+.sidebar a:hover {
+  background: #ffffff70;
+}
+
+/* Estado activo para indicar sección actual. */
 .sidebar a.active,
-.sidebar a[aria-current="page"] { background: #fff; }
+.sidebar a[aria-current='page'] {
+  background: #fff;
+}
 
 .content {
   display: grid;
-  grid-template-rows: 56px 1fr; /* si usas topbar */
+  grid-template-rows: 56px 1fr;
 }
 .topbar {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 0 16px;
   border-bottom: 1px solid var(--border);
   background: #fff;
 }
-.userbox { display: flex; gap: 10px; align-items: center; }
+.userbox {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
 
-.page { padding: 16px; }
+.page {
+  padding: 16px;
+}
 
-/* =====================================================================
-   COMPONENTES (cards, formularios, botones, tablas)
-   ===================================================================== */
+/* Card reutilizable para agrupar contenido y mantener jerarquía visual. */
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -106,36 +132,51 @@ body {
   padding: 14px;
   box-shadow: var(--shadow);
 }
-.card h3 { margin: 0; }
+.card h3 {
+  margin: 0;
+}
 
+/* Grilla simple para formularios/filas con 4 columnas por defecto. */
 .row {
   display: grid;
   gap: 8px;
   grid-template-columns: repeat(4, 1fr);
 }
 
-/* Inputs base (cards / forms) */
-.card input, .card select,
-.row input, .row select,
-.form-grid input, .form-grid select,
-.filters input, .filters select {
+/* Controles de formulario consistentes:
+   - ancho completo, padding uniforme, focus visible con ring.
+   - transiciones cortas para feedback sin distracción. */
+.card input,
+.card select,
+.row input,
+.row select,
+.form-grid input,
+.form-grid select,
+.filters input,
+.filters select {
   width: 100%;
   padding: 12px;
   border: 1px solid #eaeaea;
   border-radius: var(--radius-sm);
   outline: none;
   font-size: 15px;
-  transition: border-color var(--speed), box-shadow var(--speed);
+  transition:
+    border-color var(--speed),
+    box-shadow var(--speed);
 }
-.card input:focus, .card select:focus,
-.row input:focus, .row select:focus,
-.form-grid input:focus, .form-grid select:focus,
-.filters input:focus, .filters select:focus {
+.card input:focus,
+.card select:focus,
+.row input:focus,
+.row select:focus,
+.form-grid input:focus,
+.form-grid select:focus,
+.filters input:focus,
+.filters select:focus {
   border-color: var(--primary);
   box-shadow: var(--focus-ring);
 }
 
-/* Labels */
+/* Labels uniformes para legibilidad y consistencia en formularios. */
 label {
   display: block;
   margin: 0 0 6px;
@@ -143,7 +184,7 @@ label {
   color: var(--ink);
 }
 
-/* Botones */
+/* Botón primario: acción principal con hover/active para feedback. */
 .btn-primary {
   background: var(--primary);
   color: #333;
@@ -152,11 +193,20 @@ label {
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-weight: 600;
-  transition: filter var(--speed), background var(--speed), transform var(--speed);
+  transition:
+    filter var(--speed),
+    background var(--speed),
+    transform var(--speed);
 }
-.btn-primary:hover { background: var(--primary-2); transform: translateY(-1px); }
-.btn-primary:active { transform: translateY(0); }
+.btn-primary:hover {
+  background: var(--primary-2);
+  transform: translateY(-1px);
+}
+.btn-primary:active {
+  transform: translateY(0);
+}
 
+/* Botón secundario: acciones no críticas (filtros, editar, etc.). */
 .btn-outline {
   background: #fff;
   color: #444;
@@ -164,13 +214,23 @@ label {
   border-radius: var(--radius-sm);
   padding: 8px 10px;
   cursor: pointer;
-  transition: border-color var(--speed), transform var(--speed);
+  transition:
+    border-color var(--speed),
+    transform var(--speed);
 }
-.btn-outline:hover { border-color: #e6e6e6; transform: translateY(-1px); }
-.btn-outline:active { transform: translateY(0); }
-/* Variante pequeña para acciones inline */
-.btn-outline.sm { padding: 10px 12px; border-radius: var(--radius-sm); }
+.btn-outline:hover {
+  border-color: #e6e6e6;
+  transform: translateY(-1px);
+}
+.btn-outline:active {
+  transform: translateY(0);
+}
+.btn-outline.sm {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+}
 
+/* Botón de peligro: acciones destructivas con alta visibilidad. */
 .btn-danger {
   background: #ff4d4f;
   color: #fff;
@@ -181,8 +241,11 @@ label {
   font-weight: 600;
   transition: filter var(--speed);
 }
-.btn-danger:hover { filter: brightness(1.06); }
+.btn-danger:hover {
+  filter: brightness(1.06);
+}
 
+/* Variante outline para confirmaciones o acciones destructivas menos intrusivas. */
 .btn-danger-outline {
   background: #fff;
   color: var(--danger-fg);
@@ -193,34 +256,35 @@ label {
   font-weight: 600;
   transition: background var(--speed);
 }
-.btn-danger-outline:hover { background: var(--danger-bg); }
-/* Warning (por vencer) */
-:root{
+.btn-danger-outline:hover {
+  background: var(--danger-bg);
+}
+
+/* Tokens de estado "warning". */
+:root {
   --warn-bg: #fffbe6;
   --warn-bd: #ffe58f;
   --warn-fg: #ad6800;
 }
 
-/* Badge de warning */
-.badge--warn{
+/* Badge y fila resaltada para advertencias en listados/tablas. */
+.badge--warn {
   background: var(--warn-bg);
   border: 1px solid var(--warn-bd);
   color: var(--warn-fg);
 }
+.tr--warn {
+  background: #fffdf1 !important;
+}
 
-/* Fila resaltada (opcional) */
-.tr--warn { background: #fffdf1 !important; }
-
-
-
-/* Filtros (encabezado de tablas) */
+/* Filtros de listados: distribución por defecto (búsqueda + estado). */
 .filters {
   display: grid;
   gap: 8px;
-  grid-template-columns: 1.2fr 0.6fr; /* por defecto: búsqueda + estado */
+  grid-template-columns: 1.2fr 0.6fr;
 }
 
-/* Tablas */
+/* Tabla base: estilo neutro, zebra y hover para lectura de filas. */
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -229,23 +293,36 @@ label {
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
-.table th, .table td {
+.table th,
+.table td {
   border: 1px solid #f2f2f2;
   padding: 10px 8px;
   font-size: 15.5px;
   text-align: left;
 }
-.table th { background: #fafafa; }
-.table tbody tr:nth-child(even) { background: #fafafa; }
-.table tbody tr:hover { background: #fdfdfd; }
+.table th {
+  background: #fafafa;
+}
+.table tbody tr:nth-child(even) {
+  background: #fafafa;
+}
+.table tbody tr:hover {
+  background: #fdfdfd;
+}
 
-/* Estados con badge reutilizable */
-.badge--on  { background: var(--success-bg); border: 1px solid var(--success-bd); color: var(--success-fg); }
-.badge--off { background: var(--danger-bg);  border: 1px solid var(--danger-bd);  color: var(--danger-fg); }
+/* Badges de estado reutilizables para activo/inactivo. */
+.badge--on {
+  background: var(--success-bg);
+  border: 1px solid var(--success-bd);
+  color: var(--success-fg);
+}
+.badge--off {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-bd);
+  color: var(--danger-fg);
+}
 
-/* =====================================================================
-   MODAL
-   ===================================================================== */
+/* Modal: ancho responsivo, contenido con scroll interno para evitar overflow de pantalla. */
 .modal-card {
   width: min(900px, 96vw);
   background: #fff;
@@ -256,25 +333,23 @@ label {
 }
 .modal-body {
   margin-top: 12px;
-  max-height: 75vh;   /* evita overflow de pantalla */
-  overflow: auto;     /* scroll interno si hace falta */
+  max-height: 75vh;
+  overflow: auto;
 }
 
-/* =====================================================================
-   FORM GRID (para formularios grandes / responsivos)
-   ===================================================================== */
+/* Grid de formulario: 2 columnas en desktop y 1 en mobile. */
 .form-grid {
   display: grid;
   gap: 16px;
-  grid-template-columns: 1fr 1fr; /* 2 columnas en desktop */
+  grid-template-columns: 1fr 1fr;
 }
 @media (max-width: 720px) {
-  .form-grid { grid-template-columns: 1fr; } /* 1 columna en mobile */
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
-/* =====================================================================
-   LOGIN
-   ===================================================================== */
+/* Pantalla de login centrada con card de ancho controlado. */
 .login-wrapper {
   min-height: 100vh;
   display: grid;
@@ -283,11 +358,11 @@ label {
 }
 .login-card {
   width: 100%;
-  max-width: 440px;               /* más cómodo */
+  max-width: 440px;
   background: #fffdfa;
-  padding: 32px;                  /* mayor respiro */
+  padding: 32px;
   border-radius: 16px;
-  box-shadow: 0 12px 30px rgba(0,0,0,0.08);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
   border: 1px solid var(--border);
 }
 .login-card h2 {
@@ -295,8 +370,16 @@ label {
   color: var(--ink);
   font-size: 1.55rem;
 }
-.login-card .muted { color: var(--muted); font-size: 1rem; }
-.login-card label { display: block; margin: 14px 0 8px; color: var(--ink); font-weight: 600; }
+.login-card .muted {
+  color: var(--muted);
+  font-size: 1rem;
+}
+.login-card label {
+  display: block;
+  margin: 14px 0 8px;
+  color: var(--ink);
+  font-weight: 600;
+}
 
 .login-card input {
   width: 100%;
@@ -306,14 +389,16 @@ label {
   background: #fff;
   outline: none;
   font-size: 1rem;
-  transition: border-color var(--speed), box-shadow var(--speed);
+  transition:
+    border-color var(--speed),
+    box-shadow var(--speed);
 }
 .login-card input:focus {
   border-color: var(--primary);
   box-shadow: var(--focus-ring);
 }
 
-/* Botón principal dentro del card */
+/* Botón principal del login: ancho completo para accesibilidad y consistencia. */
 .login-card .btn-primary {
   width: 100%;
   margin-top: 14px;
@@ -327,13 +412,21 @@ label {
   cursor: pointer;
   transition: background var(--speed);
 }
-.login-card .btn-primary:hover { background: var(--primary-2); }
+.login-card .btn-primary:hover {
+  background: var(--primary-2);
+}
 
-/* Input + botón (mostrar/ocultar) */
-.input-with-action { display: flex; gap: 8px; align-items: center; }
-.input-with-action input { flex: 1; }
+/* Grupo input + acción. */
+.input-with-action {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.input-with-action input {
+  flex: 1;
+}
 
-/* Alertas reutilizables */
+/* Alerta reutilizable para mensajes de error/validación. */
 .alert {
   background: var(--danger-bg);
   color: var(--danger-fg);
@@ -342,6 +435,3 @@ label {
   border-radius: var(--radius-sm);
   margin: 8px 0 4px;
 }
-
-
-

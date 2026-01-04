@@ -57,7 +57,7 @@ async function consumirMPFIFO(tx, mpId, cantidadStr, meta = {}) {
     throw new Error(`Stock insuficiente de MP #${mpId}. Faltan ${fromM(restanteM)}`);
 }
 
-/* ============ CONTROLADORES ============ */
+/*  CONTROLADORES  */
 
 // GET /api/cultivos
 exports.listarCultivos = async (_req, res) => {

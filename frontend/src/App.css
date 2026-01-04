@@ -1,3 +1,5 @@
+/* Contenedor raíz de la aplicación.
+   Limita el ancho máximo, centra el contenido y define un padding base. */
 #root {
   max-width: 1280px;
   margin: 0 auto;
@@ -5,19 +7,27 @@
   text-align: center;
 }
 
+/* Estilo base del logo.
+   - will-change optimiza el render previo a animaciones/filtros.
+   - transition suaviza cambios visuales al interactuar. */
 .logo {
   height: 6em;
   padding: 1.5em;
   will-change: filter;
   transition: filter 300ms;
 }
+
+/* Efecto visual al pasar el cursor sobre el logo genérico. */
 .logo:hover {
   filter: drop-shadow(0 0 2em #646cffaa);
 }
+
+/* Variante específica para el logo de React. */
 .logo.react:hover {
   filter: drop-shadow(0 0 2em #61dafbaa);
 }
 
+/* Animación de rotación continua del logo. */
 @keyframes logo-spin {
   from {
     transform: rotate(0deg);
@@ -27,16 +37,20 @@
   }
 }
 
+/* Aplica la animación solo si el usuario no ha solicitado reducir movimiento,
+   respetando preferencias de accesibilidad del sistema. */
 @media (prefers-reduced-motion: no-preference) {
   a:nth-of-type(2) .logo {
     animation: logo-spin infinite 20s linear;
   }
 }
 
+/* Contenedor genérico tipo tarjeta para agrupar contenido. */
 .card {
   padding: 2em;
 }
 
+/* Estilo para textos secundarios o informativos. */
 .read-the-docs {
   color: #888;
 }

@@ -2,7 +2,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/client';
 
-/* ===== helpers de rol ===== */
+/* Normaliza roles entre UI y API.
+   - UI usa etiquetas legibles ("Admin", "Producción").
+   - API exige valores canon ("ADMIN", "PRODUCCION") para control de acceso. */
 const toUIRole = (r) => (String(r || '').toUpperCase() === 'ADMIN' ? 'Admin' : 'Producción');
 const toApiRole = (r) =>
   String(r || '')
@@ -11,7 +13,7 @@ const toApiRole = (r) =>
     ? 'ADMIN'
     : 'PRODUCCION';
 
-/* ===== UI Helpers ===== */
+/* Toast: feedback no bloqueante para operaciones CRUD (éxito/error). */
 function Toast({ type = 'success', message, onClose }) {
   if (!message) return null;
   return (
@@ -40,6 +42,8 @@ function Toast({ type = 'success', message, onClose }) {
   );
 }
 
+/* Modal: contenedor reutilizable que bloquea el fondo y evita cierres accidentales
+   al detener propagación en el contenido interno. */
 function Modal({ open, title, children, onClose }) {
   if (!open) return null;
   return (
@@ -68,6 +72,7 @@ function Modal({ open, title, children, onClose }) {
   );
 }
 
+/* Confirm: confirmación explícita para acciones sensibles (eliminar / activar-desactivar). */
 function Confirm({ open, title = 'Confirmar', message, onCancel, onConfirm }) {
   if (!open) return null;
   return (
@@ -85,7 +90,6 @@ function Confirm({ open, title = 'Confirmar', message, onCancel, onConfirm }) {
   );
 }
 
-/* ===== Form ===== */
 const emptyForm = {
   nombre: '',
   usuario: '',
@@ -96,8 +100,12 @@ const emptyForm = {
 
 function UsuarioForm({ initial = emptyForm, onSubmit, submitting, isEdit }) {
   const [form, setForm] = useState(initial);
+
+  // Sincroniza el formulario cuando cambia el registro en edición.
   useEffect(() => setForm(initial), [initial]);
 
+  // Validación local para evitar llamadas inválidas a la API.
+  // En edición: password vacío significa "no modificar contraseña".
   const canSubmit = useMemo(() => {
     const okNombre = form?.nombre?.trim()?.length > 1;
     const okUsuario = form?.usuario?.trim()?.length > 2;
@@ -115,11 +123,14 @@ function UsuarioForm({ initial = emptyForm, onSubmit, submitting, isEdit }) {
   function submit(e) {
     e.preventDefault();
     if (!canSubmit) return;
+
     const payload = { ...form };
-    // En edición: password vacío => no cambiar
+
+    // En edición: si no se provee password, no se envía para evitar sobrescritura.
     if (isEdit && (!payload.password || payload.password.trim() === '')) {
       delete payload.password;
     }
+
     onSubmit(payload);
   }
 
@@ -143,6 +154,7 @@ function UsuarioForm({ initial = emptyForm, onSubmit, submitting, isEdit }) {
             minLength={2}
           />
         </div>
+
         <div>
           <label>
             Usuario <span className="muted">(mín. 3 caracteres, único)</span>
@@ -156,6 +168,7 @@ function UsuarioForm({ initial = emptyForm, onSubmit, submitting, isEdit }) {
             minLength={3}
           />
         </div>
+
         <div>
           <label>Rol</label>
           <select name="rol" value={form.rol} onChange={handleChange} required>
@@ -166,6 +179,7 @@ function UsuarioForm({ initial = emptyForm, onSubmit, submitting, isEdit }) {
             Admin: acceso total · Producción: acceso operativo.
           </div>
         </div>
+
         <div>
           <label>{isEdit ? 'Contraseña (opcional)' : 'Contraseña'}</label>
           <input
@@ -184,6 +198,7 @@ function UsuarioForm({ initial = emptyForm, onSubmit, submitting, isEdit }) {
             {passHelp}
           </div>
         </div>
+
         <div style={{ display: 'flex', alignItems: 'end' }}>
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: 0 }}>
             <input type="checkbox" name="estado" checked={!!form.estado} onChange={handleChange} />
@@ -201,7 +216,6 @@ function UsuarioForm({ initial = emptyForm, onSubmit, submitting, isEdit }) {
   );
 }
 
-/* ===== Página ===== */
 export default function Usuarios() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -220,15 +234,17 @@ export default function Usuarios() {
 
   const [filters, setFilters] = useState({ q: '', estado: 'all', rol: 'all' });
 
-  /* API */
   async function load() {
     setLoading(true);
     try {
       const { data } = await api.get('/usuarios');
+
+      // Normaliza roles al formato de UI para mantener consistencia en filtros y render.
       const normalized = (Array.isArray(data) ? data : []).map((u) => ({
         ...u,
         rol: toUIRole(u.rol),
       }));
+
       setItems(normalized);
     } catch (err) {
       setToast({
@@ -239,6 +255,7 @@ export default function Usuarios() {
       setLoading(false);
     }
   }
+
   useEffect(() => {
     load();
   }, []);
@@ -249,10 +266,11 @@ export default function Usuarios() {
       const body = {
         nombre: String(payload.nombre || '').trim(),
         usuario: String(payload.usuario || '').trim(),
-        rol: toApiRole(payload.rol), // -> "ADMIN" | "PRODUCCION"
+        rol: toApiRole(payload.rol),
         estado: !!payload.estado,
-        contrasena: String(payload.password || '').trim(), // requerido en creación
+        contrasena: String(payload.password || '').trim(),
       };
+
       await api.post('/usuarios', body);
       setToast({ type: 'success', message: 'Usuario creado' });
       setModalOpen(false);
@@ -272,16 +290,16 @@ export default function Usuarios() {
   async function updateItem(id, payload) {
     setSubmitting(true);
     try {
-      // 1) Actualizar datos generales (sin contraseña)
+      // La contraseña se gestiona por endpoint dedicado para evitar cambios accidentales.
       const body = {
         nombre: String(payload.nombre || '').trim(),
         usuario: String(payload.usuario || '').trim(),
         rol: toApiRole(payload.rol),
         estado: !!payload.estado,
       };
+
       await api.put(`/usuarios/${id}`, body);
 
-      // 2) Si hay nueva contraseña, llamar endpoint dedicado
       const newPass = String(payload.password || '').trim();
       if (newPass) {
         if (newPass.length < 6) {
@@ -332,11 +350,11 @@ export default function Usuarios() {
     }
   }
 
-  /* Filtro en memoria */
+  // Filtrado y ordenamiento en memoria para mantener la UI responsiva sin recargar la API.
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
     const estado = filters.estado;
-    const rol = filters.rol; // "all" | "Admin" | "Producción"
+    const rol = filters.rol;
 
     return items.filter((u) => {
       const matchText =
@@ -362,32 +380,27 @@ export default function Usuarios() {
     );
   }, [filtered]);
 
-  /* UI */
-  const header = (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <div>
-        <h2 style={{ margin: 0 }}>Usuarios</h2>
-        <div className="muted">Administra cuentas, roles y contraseñas</div>
-      </div>
-      <button
-        className="btn-primary"
-        onClick={() => {
-          setEditing(null);
-          setModalOpen(true);
-        }}
-        style={{ width: 'auto' }}
-      >
-        + Nuevo usuario
-      </button>
-    </div>
-  );
-
   return (
     <div className="page">
       <div className="card">
-        {header}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h2 style={{ margin: 0 }}>Usuarios</h2>
+            <div className="muted">Administra cuentas, roles y contraseñas</div>
+          </div>
 
-        {/* Filtros */}
+          <button
+            className="btn-primary"
+            onClick={() => {
+              setEditing(null);
+              setModalOpen(true);
+            }}
+            style={{ width: 'auto' }}
+          >
+            + Nuevo usuario
+          </button>
+        </div>
+
         <div className="filters" style={{ marginTop: 12, gridTemplateColumns: '1fr 0.6fr 0.6fr' }}>
           <input
             placeholder="Buscar por nombre, usuario o rol…"
@@ -412,7 +425,6 @@ export default function Usuarios() {
           </select>
         </div>
 
-        {/* Tabla */}
         <div style={{ marginTop: 12 }}>
           <table className="table">
             <thead>
@@ -471,7 +483,7 @@ export default function Usuarios() {
                               id: u.id,
                               nombre: u.nombre,
                               usuario: u.usuario,
-                              rol: u.rol, // UI
+                              rol: u.rol,
                               estado: !!u.estado,
                               password: '',
                             });
@@ -512,7 +524,6 @@ export default function Usuarios() {
         </div>
       </div>
 
-      {/* Modal Crear / Editar */}
       <Modal
         open={modalOpen}
         title={editing ? 'Editar usuario' : 'Nuevo usuario'}
@@ -531,7 +542,6 @@ export default function Usuarios() {
         />
       </Modal>
 
-      {/* Confirmaciones */}
       <Confirm
         open={confirmDeleteOpen}
         title="Eliminar usuario"
@@ -546,6 +556,7 @@ export default function Usuarios() {
         }}
         onConfirm={() => removeItem(toDelete.id)}
       />
+
       <Confirm
         open={confirmToggleOpen}
         title={toToggle?.estado ? 'Desactivar usuario' : 'Activar usuario'}
