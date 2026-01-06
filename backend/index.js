@@ -1,13 +1,19 @@
+// index.js
 const express = require('express');
 const path = require('path');
 const dotenv = require('dotenv');
 const cors = require('cors');
 
-// Carga .env por defecto, o .env.sandbox si NODE_ENV=sandbox, o el que pases por ENV_FILE
+const isRender = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL);
 const envFile =
   process.env.ENV_FILE || (process.env.NODE_ENV === 'sandbox' ? '.env.sandbox' : '.env');
 
-dotenv.config({ path: path.resolve(__dirname, envFile) });
+if (!isRender) {
+  dotenv.config({ path: path.resolve(__dirname, envFile) });
+} else {
+  // por si alguien corre en Render y quedó dotenv, no dañamos nada
+  dotenv.config();
+}
 
 const app = express();
 
@@ -21,6 +27,7 @@ const ENV_ORIGINS = (process.env.CORS_ORIGINS || '')
 // Render / Vercel hints
 const RENDER_URL = (process.env.RENDER_EXTERNAL_URL || '').replace(/\/+$/, '');
 const VERCEL_URL = (process.env.VERCEL_URL || '').replace(/\/+$/, ''); // e.g. myapp.vercel.app
+
 if (VERCEL_URL && !ENV_ORIGINS.includes(`https://${VERCEL_URL}`)) {
   ENV_ORIGINS.push(`https://${VERCEL_URL}`);
 }
@@ -51,7 +58,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
 };
 
 // CORS global + preflight
@@ -120,8 +127,11 @@ app.get('/api/__ping', (_req, res) => {
     env: process.env.NODE_ENV || null,
     commit: process.env.RENDER_GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA || null,
     origins: ORIGINS,
+    apiKeyConfigured: Boolean((process.env.API_KEY_PT || '').trim()),
+    hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
   });
 });
+
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 app.get('/', (_req, res) => res.send('API funcionando 🚀'));
 
