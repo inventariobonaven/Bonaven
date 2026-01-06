@@ -1,9 +1,14 @@
-// index.js
 const express = require('express');
+const path = require('path');
 const dotenv = require('dotenv');
 const cors = require('cors');
 
-dotenv.config();
+// Carga .env por defecto, o .env.sandbox si NODE_ENV=sandbox, o el que pases por ENV_FILE
+const envFile =
+  process.env.ENV_FILE || (process.env.NODE_ENV === 'sandbox' ? '.env.sandbox' : '.env');
+
+dotenv.config({ path: path.resolve(__dirname, envFile) });
+
 const app = express();
 
 /* ---------------- CORS ---------------- */
@@ -75,20 +80,18 @@ const productosRoutes = require('./src/routes/productos.routes');
 const produccionRoutes = require('./src/routes/produccion.routes');
 const categoriasRecetaRoutes = require('./src/routes/categoriasReceta.routes');
 const empaquesRoutes = require('./src/routes/empaques.routes');
-const notificacionesRoutes = require('./src/routes/notificaciones.routes'); // <- FIX ruta correcta
-// pt.routes debe exportar { api, alias }
+const notificacionesRoutes = require('./src/routes/notificaciones.routes');
 const { api: ptApiRoutes, alias: ptAliasRoutes } = require('./src/routes/pt.routes');
 const cultivosRoutes = require('./src/routes/cultivos.routes');
 
+// Integraciones externas
+const integracionesRoutes = require('./src/routes/integraciones.routes');
+
 /* ====== Montaje ====== */
-// Alias que espera el frontend (con /api)
 app.use('/api/stock-pt', ptAliasRoutes);
-// (Opcional) Alias adicional sin /api para herramientas manuales
 app.use('/stock-pt', ptAliasRoutes);
-// API formal de PT
 app.use('/api/pt', ptApiRoutes);
 
-// Empaques / Productos / Recetas / Producción
 app.use('/api/empaques', empaquesRoutes);
 app.use('/api/produccion', produccionRoutes);
 app.use('/api/productos', productosRoutes);
@@ -97,7 +100,6 @@ app.use('/api/recetas', recetaProductoMapRoutes);
 app.use('/api/categorias-receta', categoriasRecetaRoutes);
 app.use('/api/cultivos', cultivosRoutes);
 
-// Auth y maestros
 app.use('/api/auth', authRoutes);
 app.use('/api/proveedores', proveedoresRoutes);
 app.use('/api/usuarios', usuariosRoutes);
@@ -105,8 +107,10 @@ app.use('/api/materias-primas', materiasPrimasRoutes);
 app.use('/api/lotes-materia-prima', lotesMateriaPrimaRoutes);
 app.use('/api/movimientos-mp', movimientosMpRoutes);
 
-// Notificaciones (persistentes)
-app.use('/api/notificaciones', notificacionesRoutes); // <- FIX path consistente con /api
+app.use('/api/notificaciones', notificacionesRoutes);
+
+//  Integración facturación
+app.use('/api/integraciones', integracionesRoutes);
 
 /* ------ Health/diag ------ */
 app.get('/api/__ping', (_req, res) => {

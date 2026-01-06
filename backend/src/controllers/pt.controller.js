@@ -173,6 +173,153 @@ function assertMultipleIfEmpaque(producto, cantidad) {
   }
 }
 
+/* 
+   SALIDA PT (se usa para modo simple y modo items[])
+   - NO abre transacción (la maneja el controller) */
+async function salidaPTCore(tx, payload) {
+  let {
+    producto_id,
+    lote_id,
+    loteId,
+    cantidad,
+    paquetes,
+    etapa_preferida,
+    motivo = 'SALIDA_PT',
+    fecha,
+    ref_tipo = 'VENTA', // opcional: para integraciones podrías mandar "FACTURACION"
+    ref_id = null, // opcional
+  } = payload;
+
+  // ⚠️ Fecha normalizada LOCAL (evita -1 día en UI)
+  const when = toDateOrNow(fecha);
+  const loteIdNorm = Number(lote_id ?? loteId ?? 0) || null;
+
+  /* ---------- SALIDA POR LOTE (manual) ---------- */
+  if (loteIdNorm) {
+    const lote = await tx.lotes_producto_terminado.findUnique({
+      where: { id: loteIdNorm },
+      include: {
+        productos_terminados: {
+          select: { id: true, nombre: true, unidades_por_empaque: true },
+        },
+      },
+    });
+    if (!lote) throw new Error('Lote no encontrado');
+    if (!VENTAS_ETAPAS.includes(String(lote.etapa)))
+      throw new Error('El lote no está en etapa vendible');
+    if (lote.fecha_vencimiento && new Date(lote.fecha_vencimiento) < when) {
+      throw new Error('El lote está vencido');
+    }
+
+    let cantidadStr = cantidad;
+    if (!cantidadStr && paquetes) {
+      const uxe = Number(lote.productos_terminados?.unidades_por_empaque || 0);
+      if (!(uxe > 0)) throw new Error('El producto no define unidades_por_empaque');
+      cantidadStr = String(Number(paquetes) * uxe);
+    }
+
+    const qtyM = toM(cantidadStr || 0);
+    if (!(qtyM > 0)) throw new Error('cantidad debe ser > 0');
+
+    const dispM = toM(lote.cantidad);
+    if (qtyM > dispM) throw new Error('Stock insuficiente en el lote');
+
+    await tx.stock_producto_terminado.create({
+      data: {
+        producto_id: lote.producto_id,
+        lote_id: lote.id,
+        tipo: 'SALIDA',
+        cantidad: fromM(qtyM),
+        fecha: when,
+        motivo,
+        ref_tipo,
+        ref_id,
+      },
+    });
+
+    const nuevaM = subM(dispM, qtyM);
+    await tx.lotes_producto_terminado.update({
+      where: { id: lote.id },
+      data: { cantidad: fromM(nuevaM), estado: nuevaM === 0 ? 'AGOTADO' : 'DISPONIBLE' },
+    });
+
+    await recalcStockPTReady(tx, lote.producto_id);
+    return { ok: true, modo: 'LOTE', producto_id: lote.producto_id, lote_id: lote.id };
+  }
+
+  /* ---------- SALIDA POR FIFO (producto) ---------- */
+  if (!producto_id) throw new Error('producto_id requerido');
+
+  let cantidadStr = cantidad;
+  if (!cantidadStr && paquetes) {
+    const prod = await tx.productos_terminados.findUnique({
+      where: { id: Number(producto_id) },
+      select: { unidades_por_empaque: true },
+    });
+    const uxe = Number(prod?.unidades_por_empaque || 0);
+    if (!(uxe > 0)) throw new Error('El producto no define unidades_por_empaque');
+    cantidadStr = String(Number(paquetes) * uxe);
+  }
+
+  const qtyM = toM(cantidadStr || 0);
+  if (!(qtyM > 0)) throw new Error('cantidad debe ser > 0');
+
+  let etapas = VENTAS_ETAPAS;
+  const pref = String(etapa_preferida || '').toUpperCase();
+  if (pref === 'EMPAQUE' || pref === 'HORNEO') etapas = [pref];
+
+  let restanteM = qtyM;
+
+  const lotes = await tx.lotes_producto_terminado.findMany({
+    where: {
+      producto_id: Number(producto_id),
+      estado: 'DISPONIBLE',
+      etapa: { in: etapas },
+      OR: [{ fecha_vencimiento: null }, { fecha_vencimiento: { gte: when } }],
+      cantidad: { gt: 0 },
+    },
+    orderBy: [{ fecha_vencimiento: 'asc' }, { fecha_ingreso: 'asc' }, { id: 'asc' }],
+  });
+
+  for (const l of lotes) {
+    if (restanteM <= 0) break;
+    const dispM = toM(l.cantidad);
+    const usarM = Math.min(dispM, restanteM);
+    if (usarM > 0) {
+      await tx.stock_producto_terminado.create({
+        data: {
+          producto_id: Number(producto_id),
+          lote_id: l.id,
+          tipo: 'SALIDA',
+          cantidad: fromM(usarM),
+          motivo,
+          ref_tipo,
+          ref_id,
+          fecha: when,
+        },
+      });
+      const nuevaM = subM(dispM, usarM);
+      await tx.lotes_producto_terminado.update({
+        where: { id: l.id },
+        data: { cantidad: fromM(nuevaM), estado: nuevaM === 0 ? 'AGOTADO' : 'DISPONIBLE' },
+      });
+      restanteM = subM(restanteM, usarM);
+    }
+  }
+
+  if (restanteM > 0) {
+    throw new Error(`Stock insuficiente (vendible). Faltan ${fromM(restanteM)} unidades`);
+  }
+
+  await recalcStockPTReady(tx, Number(producto_id));
+  return {
+    ok: true,
+    modo: 'FIFO',
+    producto_id: Number(producto_id),
+    etapa_preferida: pref || null,
+  };
+}
+
 /* ===================== CONTROLADORES ===================== */
 
 /* --- ENTRADAS de PT (manuales) --- */
@@ -282,146 +429,113 @@ exports.ingresarPT = async (req, res) => {
 };
 
 /* --- SALIDAS PT (FIFO o por LOTE), soporta paquetes y etapa preferida --- */
+/*
+  ✅ Ahora soporta DOS formatos:
+  1) Simple:
+     { producto_id, cantidad, fecha, motivo, ... }
+
+  2) Con items (aunque sea 1):
+     {
+       factura_id, fecha, motivo,
+       items: [{ producto_id, cantidad, ... }, ...]
+     }
+
+  - En ambos casos, reutiliza salidaPTCore().
+  - Si mandas factura_id, automáticamente se agrega al motivo como "FACTURA:<id>".
+*/
 exports.salidaPT = async (req, res) => {
   try {
-    let {
-      producto_id,
-      lote_id,
-      loteId,
-      cantidad,
-      paquetes,
-      etapa_preferida,
-      motivo = 'SALIDA_PT',
-      fecha,
+    const {
+      factura_id,
+      id_empresa,
+      id_personal,
+      motivo: motivoBase = 'SALIDA_PT',
+      ref_tipo: refTipoBody,
+      ref_id: refIdBody,
     } = req.body;
 
-    // ⚠️ Fecha normalizada LOCAL (evita -1 día en UI)
-    const when = toDateOrNow(fecha);
-    const loteIdNorm = Number(lote_id ?? loteId ?? 0) || null;
+    const items = Array.isArray(req.body.items) ? req.body.items : null;
 
     const out = await prisma.$transaction(async (tx) => {
-      /* ---------- SALIDA POR LOTE (manual) ---------- */
-      if (loteIdNorm) {
-        const lote = await tx.lotes_producto_terminado.findUnique({
-          where: { id: loteIdNorm },
-          include: {
-            productos_terminados: {
-              select: { id: true, nombre: true, unidades_por_empaque: true },
-            },
-          },
-        });
-        if (!lote) throw new Error('Lote no encontrado');
-        if (!VENTAS_ETAPAS.includes(String(lote.etapa)))
-          throw new Error('El lote no está en etapa vendible');
-        if (lote.fecha_vencimiento && new Date(lote.fecha_vencimiento) < when) {
-          throw new Error('El lote está vencido');
-        }
+      // ---------- MODO ITEMS ----------
+      if (items) {
+        if (items.length === 0) throw new Error('items no puede ir vacío');
 
-        let cantidadStr = cantidad;
-        if (!cantidadStr && paquetes) {
-          const uxe = Number(lote.productos_terminados?.unidades_por_empaque || 0);
-          if (!(uxe > 0)) throw new Error('El producto no define unidades_por_empaque');
-          cantidadStr = String(Number(paquetes) * uxe);
-        }
+        const results = [];
 
-        const qtyM = toM(cantidadStr || 0);
-        if (!(qtyM > 0)) throw new Error('cantidad debe ser > 0');
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i] || {};
 
-        const dispM = toM(lote.cantidad);
-        if (qtyM > dispM) throw new Error('Stock insuficiente en el lote');
+          // Campos por item (permitimos que el item sobreescriba fecha/motivo si lo mandan)
+          const producto_id = it.producto_id;
+          const cantidad = it.cantidad;
+          const paquetes = it.paquetes;
+          const lote_id = it.lote_id ?? it.loteId;
+          const etapa_preferida = it.etapa_preferida;
 
-        await tx.stock_producto_terminado.create({
-          data: {
-            producto_id: lote.producto_id,
-            lote_id: lote.id,
-            tipo: 'SALIDA',
-            cantidad: fromM(qtyM),
-            fecha: when,
+          if (!producto_id) throw new Error(`producto_id es obligatorio en items[${i}]`);
+          if (cantidad === undefined && paquetes === undefined) {
+            throw new Error(
+              `cantidad o paquetes es obligatorio en items[${i}] (producto_id=${producto_id})`,
+            );
+          }
+
+          // Motivo enriquecido (queda en movimientos)
+          const motivo = [
+            it.motivo || motivoBase,
+            factura_id ? `FACTURA:${String(factura_id).trim()}` : null,
+            id_empresa ? `empresa:${String(id_empresa).trim()}` : null,
+            id_personal ? `personal:${String(id_personal).trim()}` : null,
+          ]
+            .filter(Boolean)
+            .join(' | ');
+
+          const r = await salidaPTCore(tx, {
+            producto_id,
+            cantidad,
+            paquetes,
+            lote_id,
+            etapa_preferida,
             motivo,
-            ref_tipo: 'VENTA',
-          },
-        });
-
-        const nuevaM = subM(dispM, qtyM);
-        await tx.lotes_producto_terminado.update({
-          where: { id: lote.id },
-          data: { cantidad: fromM(nuevaM), estado: nuevaM === 0 ? 'AGOTADO' : 'DISPONIBLE' },
-        });
-
-        await recalcStockPTReady(tx, lote.producto_id);
-        return { ok: true, modo: 'LOTE', producto_id: lote.producto_id, lote_id: lote.id };
-      }
-
-      /* ---------- SALIDA POR FIFO (producto) ---------- */
-      if (!producto_id) throw new Error('producto_id requerido');
-
-      let cantidadStr = cantidad;
-      if (!cantidadStr && paquetes) {
-        const prod = await tx.productos_terminados.findUnique({
-          where: { id: Number(producto_id) },
-          select: { unidades_por_empaque: true },
-        });
-        const uxe = Number(prod?.unidades_por_empaque || 0);
-        if (!(uxe > 0)) throw new Error('El producto no define unidades_por_empaque');
-        cantidadStr = String(Number(paquetes) * uxe);
-      }
-
-      const qtyM = toM(cantidadStr || 0);
-      if (!(qtyM > 0)) throw new Error('cantidad debe ser > 0');
-
-      let etapas = VENTAS_ETAPAS;
-      const pref = String(etapa_preferida || '').toUpperCase();
-      if (pref === 'EMPAQUE' || pref === 'HORNEO') etapas = [pref];
-
-      let restanteM = qtyM;
-
-      const lotes = await tx.lotes_producto_terminado.findMany({
-        where: {
-          producto_id: Number(producto_id),
-          estado: 'DISPONIBLE',
-          etapa: { in: etapas },
-          OR: [{ fecha_vencimiento: null }, { fecha_vencimiento: { gte: when } }],
-          cantidad: { gt: 0 },
-        },
-        orderBy: [{ fecha_vencimiento: 'asc' }, { fecha_ingreso: 'asc' }, { id: 'asc' }],
-      });
-
-      for (const l of lotes) {
-        if (restanteM <= 0) break;
-        const dispM = toM(l.cantidad);
-        const usarM = Math.min(dispM, restanteM);
-        if (usarM > 0) {
-          await tx.stock_producto_terminado.create({
-            data: {
-              producto_id: Number(producto_id),
-              lote_id: l.id,
-              tipo: 'SALIDA',
-              cantidad: fromM(usarM),
-              motivo,
-              ref_tipo: 'VENTA',
-              fecha: when,
-            },
+            fecha: it.fecha ?? req.body.fecha,
+            ref_tipo: it.ref_tipo ?? refTipoBody ?? 'VENTA',
+            ref_id: it.ref_id ?? refIdBody ?? null,
           });
-          const nuevaM = subM(dispM, usarM);
-          await tx.lotes_producto_terminado.update({
-            where: { id: l.id },
-            data: { cantidad: fromM(nuevaM), estado: nuevaM === 0 ? 'AGOTADO' : 'DISPONIBLE' },
+
+          results.push({
+            index: i,
+            producto_id: Number(producto_id),
+            ...r,
           });
-          restanteM = subM(restanteM, usarM);
         }
+
+        return {
+          ok: true,
+          modo: 'ITEMS',
+          factura_id: factura_id || null,
+          id_empresa: id_empresa || null,
+          id_personal: id_personal || null,
+          items_procesados: results.length,
+          results,
+        };
       }
 
-      if (restanteM > 0) {
-        throw new Error(`Stock insuficiente (vendible). Faltan ${fromM(restanteM)} unidades`);
-      }
+      // ---------- MODO SIMPLE (como estaba) ----------
+      const motivo = [
+        motivoBase,
+        factura_id ? `FACTURA:${String(factura_id).trim()}` : null,
+        id_empresa ? `empresa:${String(id_empresa).trim()}` : null,
+        id_personal ? `personal:${String(id_personal).trim()}` : null,
+      ]
+        .filter(Boolean)
+        .join(' | ');
 
-      await recalcStockPTReady(tx, Number(producto_id));
-      return {
-        ok: true,
-        modo: 'FIFO',
-        producto_id: Number(producto_id),
-        etapa_preferida: pref || null,
-      };
+      return salidaPTCore(tx, {
+        ...req.body,
+        motivo,
+        ref_tipo: refTipoBody ?? req.body.ref_tipo ?? 'VENTA',
+        ref_id: refIdBody ?? req.body.ref_id ?? null,
+      });
     });
 
     res.json(out);

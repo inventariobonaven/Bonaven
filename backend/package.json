@@ -4,7 +4,9 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon index.js",
+    "dev:sandbox": "NODE_ENV=sandbox nodemon index.js",
     "start": "node index.js",
+    "start:sandbox": "NODE_ENV=sandbox node index.js",
     "postinstall": "npx prisma generate",
     "build": "echo \"(backend sin build)\""
   },

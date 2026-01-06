@@ -8,9 +8,277 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/**
- * ======================= ENUMS =======================
- */
+model usuarios {
+  id             Int                        @id @default(autoincrement())
+  nombre         String
+  usuario        String                     @unique
+  contrasena     String
+  estado         Boolean?                   @default(true)
+  rol            Rol
+  auditoria      auditoria[]
+  backups        backups[]
+  movimientos_pt stock_producto_terminado[]
+}
+
+model auditoria {
+  id               Int       @id @default(autoincrement())
+  tabla_afectada   String
+  tipo_operacion   String
+  datos_anteriores Json?
+  datos_nuevos     Json?
+  usuario_id       Int?
+  fecha            DateTime? @default(now()) @db.Timestamp(6)
+  usuarios         usuarios? @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model backups {
+  id             Int       @id @default(autoincrement())
+  nombre_archivo String
+  fecha_backup   DateTime? @default(now()) @db.Timestamp(6)
+  realizado_por  Int?
+  descripcion    String?
+  usuarios       usuarios? @relation(fields: [realizado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model proveedores {
+  id                  Int                   @id @default(autoincrement())
+  nombre              String
+  contacto            String?
+  estado              Boolean?              @default(true)
+  lotes_materia_prima lotes_materia_prima[]
+}
+
+model materias_primas {
+  id                           Int                         @id @default(autoincrement())
+  nombre                       String
+  tipo                         String
+  unidad_medida                String
+  estado                       Boolean?                    @default(true)
+  stock_total                  Decimal                     @default(0) @db.Decimal(18, 3)
+  ingredientes_receta          ingredientes_receta[]
+  lotes_materia_prima          lotes_materia_prima[]
+  movimientos_materia_prima    movimientos_materia_prima[]
+  productos_terminados_empaque productos_terminados[]      @relation("ProductoEmpaque")
+  trazabilidad_produccion      trazabilidad_produccion[]
+
+  @@index([nombre])
+}
+
+model lotes_materia_prima {
+  id                        Int                         @id @default(autoincrement())
+  materia_prima_id          Int
+  proveedor_id              Int?
+  cantidad                  Decimal                     @db.Decimal(18, 3)
+  fecha_ingreso             DateTime                    @db.Timestamp(6)
+  fecha_vencimiento         DateTime?                   @db.Timestamp(6)
+  estado                    EstadoLote                  @default(DISPONIBLE)
+  codigo                    String                      @db.VarChar(64)
+  materias_primas           materias_primas             @relation(fields: [materia_prima_id], references: [id])
+  proveedores               proveedores?                @relation(fields: [proveedor_id], references: [id])
+  movimientos_materia_prima movimientos_materia_prima[]
+  trazabilidad_produccion   trazabilidad_produccion[]
+
+  @@unique([materia_prima_id, codigo], name: "uq_lote_mp_codigo")
+  @@index([materia_prima_id, fecha_ingreso])
+  @@index([materia_prima_id, estado])
+  @@index([materia_prima_id, fecha_vencimiento])
+  @@index([codigo], map: "idx_lote_codigo")
+}
+
+model movimientos_materia_prima {
+  id               Int                  @id @default(autoincrement())
+  tipo             TipoMovimientoMP
+  materia_prima_id Int
+  lote_id          Int?
+  cantidad         Decimal              @db.Decimal(18, 3)
+  motivo           String?
+  ref_tipo         String?
+  ref_id           Int?
+  fecha            DateTime             @default(now())
+  lotes            lotes_materia_prima? @relation(fields: [lote_id], references: [id])
+  materias_primas  materias_primas      @relation(fields: [materia_prima_id], references: [id])
+
+  @@index([materia_prima_id, fecha])
+  @@index([lote_id, fecha])
+}
+
+model productos_terminados {
+  id                          Int                        @id @default(autoincrement())
+  nombre                      String                     @unique
+  estado                      Boolean?                   @default(true)
+  bolsas_por_unidad           Decimal                    @default(1) @db.Decimal(18, 3)
+  descripcion_contenido       String?
+  empaque_mp_id               Int?
+  unidades_por_empaque        Int?
+  stock_total                 Decimal                    @default(0) @db.Decimal(18, 3)
+  requiere_congelacion_previa Boolean                    @default(false)
+  detalles_venta              detalles_venta[]
+  lotes_producto_terminado    lotes_producto_terminado[]
+  presentaciones              presentaciones[]
+  materias_primas_empaque     materias_primas?           @relation("ProductoEmpaque", fields: [empaque_mp_id], references: [id])
+  receta_maps                 receta_producto_map[]
+  recetas                     recetas[]
+  stock_producto_terminado    stock_producto_terminado[]
+
+  @@index([empaque_mp_id])
+}
+
+model lotes_producto_terminado {
+  id                   Int                        @id @default(autoincrement())
+  producto_id          Int
+  codigo               String                     @db.VarChar(64)
+  cantidad             Decimal                    @db.Decimal(18, 3)
+  fecha_ingreso        DateTime                   @db.Date
+  fecha_vencimiento    DateTime?                  @db.Date
+  estado               EstadoLote                 @default(DISPONIBLE)
+  etapa                EtapaPT                    @default(EMPAQUE)
+  productos_terminados productos_terminados       @relation(fields: [producto_id], references: [id])
+  movimientos          stock_producto_terminado[]
+
+  @@unique([producto_id, codigo, etapa], name: "uq_ptprod_codigo_etapa")
+  @@index([producto_id, estado])
+  @@index([producto_id, estado, etapa, fecha_ingreso])
+  @@index([producto_id, estado, fecha_vencimiento, fecha_ingreso], map: "idx_pt_fifo")
+  @@index([codigo], map: "idx_pt_codigo")
+}
+
+model stock_producto_terminado {
+  id                   Int                       @id @default(autoincrement())
+  producto_id          Int?
+  cantidad             Decimal                   @db.Decimal(18, 3)
+  fecha                DateTime                  @default(dbgenerated("CURRENT_DATE")) @db.Date
+  lote_id              Int?
+  tipo                 TipoMovimientoPT          @default(ENTRADA)
+  motivo               String?
+  ref_id               Int?
+  ref_tipo             String?
+  usuario_id           Int?
+  lote                 lotes_producto_terminado? @relation(fields: [lote_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  productos_terminados productos_terminados?     @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuario              usuarios?                 @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([producto_id, fecha])
+  @@index([lote_id, fecha])
+  @@index([tipo, fecha])
+}
+
+model categorias_receta {
+  id      Int       @id @default(autoincrement())
+  nombre  String    @unique
+  estado  Boolean?  @default(true)
+  recetas recetas[]
+}
+
+model recetas {
+  id                    Int                   @id @default(autoincrement())
+  producto_id           Int?
+  nombre                String
+  estado                Boolean?              @default(true)
+  rendimiento_por_batch Decimal               @default(1) @db.Decimal(18, 3)
+  categoria_id          Int?
+  ingredientes_receta   ingredientes_receta[]
+  producciones          producciones[]
+  producto_maps         receta_producto_map[]
+  categoria             categorias_receta?    @relation(fields: [categoria_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  productos_terminados  productos_terminados? @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([categoria_id])
+}
+
+model ingredientes_receta {
+  id               Int              @id @default(autoincrement())
+  receta_id        Int?
+  materia_prima_id Int?
+  cantidad         Decimal          @db.Decimal(18, 3)
+  unidad           String?          @db.VarChar(8)
+  materias_primas  materias_primas? @relation(fields: [materia_prima_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  recetas          recetas?         @relation(fields: [receta_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([receta_id, materia_prima_id])
+}
+
+model producciones {
+  id                      Int                       @id @default(autoincrement())
+  receta_id               Int?
+  cantidad_producida      Decimal                   @db.Decimal(18, 3)
+  fecha                   DateTime                  @default(dbgenerated("CURRENT_DATE")) @db.Date
+  duracion_minutos        Int?
+  hora_fin                DateTime?                 @db.Timestamp(6)
+  hora_inicio             DateTime?                 @db.Timestamp(6)
+  observacion             String?
+  recetas                 recetas?                  @relation(fields: [receta_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  trazabilidad_produccion trazabilidad_produccion[]
+}
+
+model trazabilidad_produccion {
+  id                  Int                  @id @default(autoincrement())
+  produccion_id       Int?
+  lote_id             Int?
+  materia_prima_id    Int?
+  cantidad_usada      Decimal              @db.Decimal
+  lotes_materia_prima lotes_materia_prima? @relation(fields: [lote_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  materias_primas     materias_primas?     @relation(fields: [materia_prima_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  producciones        producciones?        @relation(fields: [produccion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+
+///   Mapeo Receta ↔️ Producto (rendimiento y vencimiento) ===
+model receta_producto_map {
+  id                 Int                  @id @default(autoincrement())
+  receta_id          Int
+  producto_id        Int
+  unidades_por_batch Int
+  vida_util_dias     Int
+  vencimiento_base   VencimientoBase
+  producto           productos_terminados @relation(fields: [producto_id], references: [id])
+  receta             recetas              @relation(fields: [receta_id], references: [id])
+
+  @@unique([receta_id, producto_id])
+  @@index([producto_id])
+}
+
+model presentaciones {
+  id                            Int                  @id @default(autoincrement())
+  producto_id                   Int
+  nombre                        String
+  descripcion_display           String?
+  unidad_interna                String?              @db.VarChar(8)
+  unidades_internas_por_empaque Int?
+  detalles_venta                detalles_venta[]
+  producto                      productos_terminados @relation(fields: [producto_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([producto_id, nombre])
+}
+
+model ventas {
+  id             Int              @id @default(autoincrement())
+  fecha          DateTime         @default(dbgenerated("CURRENT_DATE")) @db.Date
+  cliente        String?
+  detalles_venta detalles_venta[]
+}
+
+model detalles_venta {
+  id                   Int                   @id @default(autoincrement())
+  venta_id             Int?
+  producto_id          Int?
+  presentacion_id      Int?
+  cantidad             Decimal               @db.Decimal(18, 3)
+  presentaciones       presentaciones?       @relation(fields: [presentacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  productos_terminados productos_terminados? @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ventas               ventas?               @relation(fields: [venta_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model notificaciones {
+  id         Int      @id @default(autoincrement())
+  tipo       String   @db.VarChar(50)
+  mensaje    String
+  payload    Json?
+  target_rol String   @db.VarChar(20)
+  leida      Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([leida, target_rol, created_at])
+}
 
 enum EstadoLote {
   DISPONIBLE
@@ -37,9 +305,8 @@ enum Rol {
   PRODUCCION
 }
 
-/**
- * === NUEVOS: Etapas PT y base de vencimiento ===
- */
+
+///  * === Etapas PT y base de vencimiento ===
 enum EtapaPT {
   CONGELADO
   EMPAQUE
@@ -50,350 +317,4 @@ enum VencimientoBase {
   PRODUCCION
   EMPAQUE
   HORNEO
-}
-
-/**
- * ======================= AUDITORÍA / USUARIOS =======================
- */
-
-model usuarios {
-  id             Int                        @id @default(autoincrement())
-  nombre         String
-  rol            Rol
-  usuario        String                     @unique
-  contrasena     String
-  estado         Boolean?                   @default(true)
-  auditoria      auditoria[]
-  backups        backups[]
-  // back-rel opcional: movimientos de PT registrados por usuario
-  movimientos_pt stock_producto_terminado[]
-}
-
-model auditoria {
-  id               Int       @id @default(autoincrement())
-  tabla_afectada   String
-  tipo_operacion   String
-  datos_anteriores Json?
-  datos_nuevos     Json?
-  usuario_id       Int?
-  fecha            DateTime? @default(now()) @db.Timestamp(6)
-  usuarios         usuarios? @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-}
-
-model backups {
-  id             Int       @id @default(autoincrement())
-  nombre_archivo String
-  fecha_backup   DateTime? @default(now()) @db.Timestamp(6)
-  realizado_por  Int?
-  descripcion    String?
-  usuarios       usuarios? @relation(fields: [realizado_por], references: [id], onDelete: NoAction, onUpdate: NoAction)
-}
-
-/**
- * ======================= PROVEEDORES =======================
- */
-
-model proveedores {
-  id                  Int                   @id @default(autoincrement())
-  nombre              String
-  contacto            String?
-  estado              Boolean?              @default(true)
-  lotes_materia_prima lotes_materia_prima[]
-}
-
-/**
- * ======================= MATERIAS PRIMAS (incluye EMPAQUES) =======================
- */
-
-model materias_primas {
-  id            Int      @id @default(autoincrement())
-  nombre        String
-  tipo          String // usar 'EMPAQUE' para bolsas
-  unidad_medida String // para EMPAQUE: "ud"
-  stock_total   Decimal  @default(0) @db.Decimal(18, 3)
-  estado        Boolean? @default(true)
-
-  ingredientes_receta       ingredientes_receta[]
-  lotes_materia_prima       lotes_materia_prima[]
-  trazabilidad_produccion   trazabilidad_produccion[]
-  movimientos_materia_prima movimientos_materia_prima[]
-
-  // back-relation: productos que usan esta MP como empaque
-  productos_terminados_empaque productos_terminados[] @relation("ProductoEmpaque")
-
-  @@index([nombre])
-}
-
-model lotes_materia_prima {
-  id               Int     @id @default(autoincrement())
-  materia_prima_id Int
-  proveedor_id     Int?
-  codigo           String  @db.VarChar(64)
-  cantidad         Decimal @db.Decimal(18, 3)
-
-  // ⬇️ CAMBIO: de @db.Date a timestamp sin zona
-  fecha_ingreso     DateTime  @db.Timestamp(6)
-  fecha_vencimiento DateTime? @db.Timestamp(6)
-
-  estado EstadoLote @default(DISPONIBLE)
-
-  materias_primas materias_primas @relation(fields: [materia_prima_id], references: [id])
-  proveedores     proveedores?    @relation(fields: [proveedor_id], references: [id])
-
-  trazabilidad_produccion   trazabilidad_produccion[]
-  movimientos_materia_prima movimientos_materia_prima[]
-
-  @@unique([materia_prima_id, codigo], name: "uq_lote_mp_codigo")
-  @@index([materia_prima_id, fecha_ingreso])
-  @@index([materia_prima_id, estado])
-  @@index([materia_prima_id, fecha_vencimiento])
-  @@index([codigo], name: "idx_lote_codigo")
-}
-
-model movimientos_materia_prima {
-  id               Int              @id @default(autoincrement())
-  tipo             TipoMovimientoMP
-  materia_prima_id Int
-  lote_id          Int?
-  cantidad         Decimal          @db.Decimal(18, 3)
-  motivo           String?
-  ref_tipo         String?
-  ref_id           Int?
-  fecha            DateTime         @default(now())
-
-  materias_primas materias_primas      @relation(fields: [materia_prima_id], references: [id])
-  lotes           lotes_materia_prima? @relation(fields: [lote_id], references: [id])
-
-  @@index([materia_prima_id, fecha])
-  @@index([lote_id, fecha])
-}
-
-/**
- * ======================= PRODUCTOS TERMINADOS =======================
- */
-
-model productos_terminados {
-  id     Int      @id @default(autoincrement())
-  nombre String   @unique
-  estado Boolean? @default(true)
-
-  // acumulado de PT (suma de lotes DISPONIBLES)
-  stock_total Decimal @default(0) @db.Decimal(18, 3)
-
-  // Configuración de empaque
-  empaque_mp_id         Int?
-  bolsas_por_unidad     Decimal @default(1) @db.Decimal(18, 3) // consumo real de bolsas por unidad de PT
-  unidades_por_empaque  Int?
-  descripcion_contenido String?
-
-  // ¿requiere congelación previa antes de vender? (flujo CONGELADO -> HORNEO Ó EMPAQUE)
-  requiere_congelacion_previa Boolean @default(false)
-
-  materias_primas_empaque materias_primas? @relation("ProductoEmpaque", fields: [empaque_mp_id], references: [id])
-
-  // relaciones
-  presentaciones           presentaciones[]
-  recetas                  recetas[]
-  detalles_venta           detalles_venta[]
-  stock_producto_terminado stock_producto_terminado[]
-  lotes_producto_terminado lotes_producto_terminado[]
-
-  // mapeo receta<->producto con rendimiento y vencimiento
-  receta_maps receta_producto_map[]
-
-  @@index([empaque_mp_id])
-}
-
-model lotes_producto_terminado {
-  id                Int        @id @default(autoincrement())
-  producto_id       Int
-  codigo            String     @db.VarChar(64)
-  cantidad          Decimal    @db.Decimal(18, 3)
-  fecha_ingreso     DateTime   @db.Date
-  fecha_vencimiento DateTime?  @db.Date
-  estado            EstadoLote @default(DISPONIBLE)
-
-  // Etapa del lote
-  etapa EtapaPT @default(EMPAQUE)
-
-  productos_terminados productos_terminados       @relation(fields: [producto_id], references: [id])
-  movimientos          stock_producto_terminado[]
-
-  @@unique([producto_id, codigo, etapa], name: "uq_ptprod_codigo_etapa")
-  @@index([producto_id, estado])
-  @@index([producto_id, estado, etapa, fecha_ingreso])
-  @@index([producto_id, estado, fecha_vencimiento, fecha_ingreso], name: "idx_pt_fifo")
-  @@index([codigo], name: "idx_pt_codigo")
-}
-
-model stock_producto_terminado {
-  id          Int              @id @default(autoincrement())
-  producto_id Int?
-  lote_id     Int?
-  tipo        TipoMovimientoPT @default(ENTRADA)
-  cantidad    Decimal          @db.Decimal(18, 3)
-  fecha       DateTime         @default(dbgenerated("CURRENT_DATE")) @db.Date
-
-  // Trazabilidad adicional
-  motivo     String?
-  ref_tipo   String?
-  ref_id     Int?
-  usuario_id Int?
-
-  productos_terminados productos_terminados?     @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  lote                 lotes_producto_terminado? @relation(fields: [lote_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  usuario              usuarios?                 @relation(fields: [usuario_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([producto_id, fecha])
-  @@index([lote_id, fecha])
-  @@index([tipo, fecha])
-}
-
-/**
- * ======================= RECETAS / PRODUCCIÓN =======================
- */
-
-model categorias_receta {
-  id      Int       @id @default(autoincrement())
-  nombre  String    @unique
-  estado  Boolean?  @default(true)
-  recetas recetas[]
-}
-
-model recetas {
-  id                    Int      @id @default(autoincrement())
-  producto_id           Int?
-  nombre                String
-  estado                Boolean? @default(true)
-  rendimiento_por_batch Decimal  @default(1) @db.Decimal(18, 3)
-  categoria_id          Int?
-
-  categoria            categorias_receta?    @relation(fields: [categoria_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  productos_terminados productos_terminados? @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  ingredientes_receta ingredientes_receta[]
-  producciones        producciones[]
-
-  // mapeo receta<->producto con distintos rendimientos/vencimientos
-  producto_maps receta_producto_map[]
-
-  @@index([categoria_id])
-}
-
-model ingredientes_receta {
-  id               Int     @id @default(autoincrement())
-  receta_id        Int?
-  materia_prima_id Int?
-  cantidad         Decimal @db.Decimal(18, 3)
-  unidad           String? @db.VarChar(8)
-
-  materias_primas materias_primas? @relation(fields: [materia_prima_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  recetas         recetas?         @relation(fields: [receta_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@unique([receta_id, materia_prima_id])
-}
-
-model producciones {
-  id                 Int      @id @default(autoincrement())
-  receta_id          Int?
-  cantidad_producida Decimal  @db.Decimal(18, 3)
-  fecha              DateTime @default(dbgenerated("CURRENT_DATE")) @db.Date
-
-  hora_inicio             DateTime?                 @db.Timestamp(6)
-  hora_fin                DateTime?                 @db.Timestamp(6)
-  duracion_minutos        Int?
-  observacion             String?                   @db.Text
-  recetas                 recetas?                  @relation(fields: [receta_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  trazabilidad_produccion trazabilidad_produccion[]
-}
-
-model trazabilidad_produccion {
-  id                  Int                  @id @default(autoincrement())
-  produccion_id       Int?
-  lote_id             Int?
-  materia_prima_id    Int?
-  cantidad_usada      Decimal              @db.Decimal
-  lotes_materia_prima lotes_materia_prima? @relation(fields: [lote_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  materias_primas     materias_primas?     @relation(fields: [materia_prima_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  producciones        producciones?        @relation(fields: [produccion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-}
-
-/**
- * === Mapeo Receta ↔️ Producto (rendimiento y vencimiento) ===
- */
-model receta_producto_map {
-  id          Int                  @id @default(autoincrement())
-  receta_id   Int
-  producto_id Int
-  receta      recetas              @relation(fields: [receta_id], references: [id])
-  producto    productos_terminados @relation(fields: [producto_id], references: [id])
-
-  // Por cada batch (masa) cuántas unidades de ese PT se obtienen (enteras)
-  unidades_por_batch Int
-
-  // Vencimiento
-  vida_util_dias   Int
-  vencimiento_base VencimientoBase
-
-  @@unique([receta_id, producto_id])
-  @@index([producto_id])
-}
-
-/**
- * ======================= PRESENTACIONES (SOLO METADATOS) =======================
- */
-
-model presentaciones {
-  id          Int    @id @default(autoincrement())
-  producto_id Int
-  nombre      String
-
-  // Solo informativo para UI/reportes (no mueve stock):
-  unidades_internas_por_empaque Int?
-  unidad_interna                String? @db.VarChar(8)
-  descripcion_display           String?
-
-  producto       productos_terminados @relation(fields: [producto_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  detalles_venta detalles_venta[]
-
-  @@unique([producto_id, nombre])
-}
-
-/**
- * ======================= VENTAS =======================
- */
-
-model ventas {
-  id             Int              @id @default(autoincrement())
-  fecha          DateTime         @default(dbgenerated("CURRENT_DATE")) @db.Date
-  cliente        String?
-  detalles_venta detalles_venta[]
-}
-
-model detalles_venta {
-  id              Int     @id @default(autoincrement())
-  venta_id        Int?
-  producto_id     Int?
-  presentacion_id Int?
-  cantidad        Decimal @db.Decimal(18, 3)
-
-  ventas               ventas?               @relation(fields: [venta_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  productos_terminados productos_terminados? @relation(fields: [producto_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  presentaciones       presentaciones?       @relation(fields: [presentacion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-}
-
-/**
- * ======================= NOTIFICACIONES =======================
- */
-
-model notificaciones {
-  id         Int      @id @default(autoincrement())
-  tipo       String   @db.VarChar(50) // p.ej. "OBS_PRODUCCION"
-  mensaje    String
-  payload    Json?
-  target_rol String   @db.VarChar(20) // "ADMIN" | "PRODUCCION"
-  leida      Boolean  @default(false)
-  created_at DateTime @default(now()) @db.Timestamp(6)
-
-  @@index([leida, target_rol, created_at])
 }
