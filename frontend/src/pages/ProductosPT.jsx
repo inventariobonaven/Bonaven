@@ -82,7 +82,7 @@ const toInt = (n) => (Number.isFinite(Number(n)) ? Math.round(Number(n)) : 0);
 /** Muestra stock total en paquetes cuando aplica */
 function formatStockTotal(prod) {
   const uds = toInt(prod?.stock_total);
-  const uxe = toInt(prod?.unidades_por_empaque); // unidades por empaque
+  const uxe = toInt(prod?.unidades_por_empaque);
   if (uxe > 0) {
     const pkgs = Math.floor(uds / uxe);
     const rest = uds % uxe;
@@ -102,6 +102,7 @@ const emptyForm = {
   unidades_por_empaque: '',
   descripcion_contenido: '',
   requiere_congelacion_previa: false,
+  micomercio_id: '', // ✅ nuevo
 };
 
 function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting }) {
@@ -111,7 +112,12 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
   const canSubmit = useMemo(() => {
     const okNombre = form?.nombre?.trim()?.length > 1;
     const okBolsas = Number(form?.bolsas_por_unidad || '1') > 0;
-    return okNombre && okBolsas;
+
+    // micomercio_id: opcional, pero si viene debe ser entero > 0
+    const mc = String(form?.micomercio_id ?? '').trim();
+    const okMiComercio = mc === '' || (Number.isInteger(Number(mc)) && Number(mc) > 0);
+
+    return okNombre && okBolsas && okMiComercio;
   }, [form]);
 
   function handleChange(e) {
@@ -122,6 +128,9 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
   function submit(e) {
     e.preventDefault();
     if (!canSubmit) return;
+
+    const mc = String(form.micomercio_id ?? '').trim();
+
     onSubmit({
       nombre: form.nombre.trim(),
       estado: !!form.estado,
@@ -130,6 +139,9 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
       unidades_por_empaque: form.unidades_por_empaque ? Number(form.unidades_por_empaque) : null,
       descripcion_contenido: form.descripcion_contenido?.trim() || null,
       requiere_congelacion_previa: !!form.requiere_congelacion_previa,
+
+      // ✅ enviar micomercio_id como número o null
+      micomercio_id: mc === '' ? null : Number(mc),
     });
   }
 
@@ -145,6 +157,19 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
             onChange={handleChange}
             required
           />
+        </div>
+
+        <div>
+          <label>MiComercio ID (opcional)</label>
+          <input
+            name="micomercio_id"
+            placeholder="Ej. 442500"
+            value={form.micomercio_id ?? ''}
+            onChange={handleChange}
+          />
+          <div className="muted" style={{ marginTop: 4 }}>
+            Es el IdProducto en MiComercio (si aún no lo tienes, déjalo vacío).
+          </div>
         </div>
 
         <div>
@@ -290,9 +315,10 @@ export default function ProductosPT() {
     }
   }
 
+  // ✅ FIX: usar PATCH /productos/:id/estado (según tu route)
   async function toggleEstado(id, estadoActual) {
     try {
-      await api.put(`/productos/${id}`, { estado: !estadoActual });
+      await api.patch(`/productos/${id}/estado`, { estado: !estadoActual });
       setToast({ type: 'success', message: !estadoActual ? 'Activado' : 'Desactivado' });
       await load();
     } catch {
@@ -389,6 +415,7 @@ export default function ProductosPT() {
               <tr>
                 <th style={{ width: 80 }}>ID</th>
                 <th>Nombre</th>
+                <th style={{ width: 130 }}>MiComercio ID</th>
                 <th>Empaque</th>
                 <th>Bolsas/und</th>
                 <th>Und/Empaque</th>
@@ -402,7 +429,7 @@ export default function ProductosPT() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={9} style={{ padding: 14 }}>
+                  <td colSpan={10} style={{ padding: 14 }}>
                     Cargando…
                   </td>
                 </tr>
@@ -410,7 +437,7 @@ export default function ProductosPT() {
 
               {!loading && sorted.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ padding: 14, textAlign: 'center' }}>
+                  <td colSpan={10} style={{ padding: 14, textAlign: 'center' }}>
                     Sin resultados
                   </td>
                 </tr>
@@ -421,6 +448,7 @@ export default function ProductosPT() {
                   <tr key={it.id}>
                     <td>{it.id}</td>
                     <td>{it.nombre}</td>
+                    <td>{it.micomercio_id ?? '—'}</td>
                     <td>{it.materias_primas_empaque?.nombre || '-'}</td>
                     <td>{String(it.bolsas_por_unidad ?? '1')}</td>
                     <td>{it.unidades_por_empaque ?? '-'}</td>
@@ -453,6 +481,7 @@ export default function ProductosPT() {
                               unidades_por_empaque: it.unidades_por_empaque ?? '',
                               descripcion_contenido: it.descripcion_contenido ?? '',
                               requiere_congelacion_previa: !!it.requiere_congelacion_previa,
+                              micomercio_id: it.micomercio_id ?? '', // ✅
                             });
                             setModalOpen(true);
                           }}

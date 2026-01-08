@@ -29,7 +29,6 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   // Rehidratación segura: si hay token, SIEMPRE validamos con /auth/me.
-  // No pintamos user desde localStorage antes de validar.
   useEffect(() => {
     let mounted = true;
 
@@ -77,7 +76,7 @@ export function AuthProvider({ children }) {
     await warmUp();
 
     let data = null;
-    // reintentos suaves solo para 503/Network Error
+    // reintentos  solo para 503/Network Error
     for (let i = 0; i < 3 && !data; i++) {
       try {
         const res = await loginFormUrlencoded({ usuario, contrasena });

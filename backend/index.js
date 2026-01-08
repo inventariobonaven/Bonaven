@@ -11,7 +11,6 @@ const envFile =
 if (!isRender) {
   dotenv.config({ path: path.resolve(__dirname, envFile) });
 } else {
-  // por si alguien corre en Render y quedó dotenv, no dañamos nada
   dotenv.config();
 }
 
@@ -90,10 +89,12 @@ const empaquesRoutes = require('./src/routes/empaques.routes');
 const notificacionesRoutes = require('./src/routes/notificaciones.routes');
 const { api: ptApiRoutes, alias: ptAliasRoutes } = require('./src/routes/pt.routes');
 const cultivosRoutes = require('./src/routes/cultivos.routes');
-
+const micomercioRoutes = require('./src/routes/micomercio.routes');
 // Integraciones externas
 const integracionesRoutes = require('./src/routes/integraciones.routes');
 
+const { startWorker } = require('./src/jobs/micomercio.worker');
+startWorker();
 /* ====== Montaje ====== */
 app.use('/api/stock-pt', ptAliasRoutes);
 app.use('/stock-pt', ptAliasRoutes);
@@ -115,7 +116,7 @@ app.use('/api/lotes-materia-prima', lotesMateriaPrimaRoutes);
 app.use('/api/movimientos-mp', movimientosMpRoutes);
 
 app.use('/api/notificaciones', notificacionesRoutes);
-
+app.use('/api/micomercio', micomercioRoutes);
 //  Integración facturación
 app.use('/api/integraciones', integracionesRoutes);
 
@@ -149,5 +150,7 @@ app.use((err, _req, res, _next) => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
+  // ... después de levantar el server:
+  startWorker({ everyMs: 10_000 });
   console.log(`CORS orígenes permitidos (EXP): ${ORIGINS.join(', ') || '(default localhost)'}`);
 });

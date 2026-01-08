@@ -13,8 +13,6 @@ router.post('/', /* requireRoleAdmin, */ ctrl.crear);
 router.put('/:id', /* requireRoleAdmin, */ ctrl.actualizar);
 router.delete('/:id', /* requireRoleAdmin, */ ctrl.eliminar);
 router.patch('/:id/estado', /* requireRoleAdmin, */ ctrl.toggleEstado);
+router.patch('/:id/congelacion', ctrl.toggleCongelacion);
 
 module.exports = router;
-
-
-

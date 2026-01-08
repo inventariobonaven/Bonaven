@@ -119,7 +119,7 @@ model productos_terminados {
   receta_maps                 receta_producto_map[]
   recetas                     recetas[]
   stock_producto_terminado    stock_producto_terminado[]
-
+  micomercio_id Int? @unique
   @@index([empaque_mp_id])
 }
 
@@ -221,8 +221,7 @@ model trazabilidad_produccion {
   producciones        producciones?        @relation(fields: [produccion_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
-
-///   Mapeo Receta ↔️ Producto (rendimiento y vencimiento) ===
+/// Mapeo Receta ↔️ Producto (rendimiento y vencimiento) ===
 model receta_producto_map {
   id                 Int                  @id @default(autoincrement())
   receta_id          Int
@@ -305,8 +304,7 @@ enum Rol {
   PRODUCCION
 }
 
-
-///  * === Etapas PT y base de vencimiento ===
+/// * === Etapas PT y base de vencimiento ===
 enum EtapaPT {
   CONGELADO
   EMPAQUE
@@ -317,4 +315,24 @@ enum VencimientoBase {
   PRODUCCION
   EMPAQUE
   HORNEO
+}
+model integracion_outbox {
+  id          Int      @id @default(autoincrement())
+  proveedor   String   // "MICOMERCIO"
+  tipo        String   // "INGRESO_PT"
+  ref_id      Int      // IdProduccion => lote_pt.id (o el lote destino al mover etapa)
+  payload     Json
+
+  estado      String   @default("PENDIENTE") // PENDIENTE | ENVIADO | ERROR
+  intentos    Int      @default(0)
+  last_error  String?
+  last_status Int?
+  last_resp   Json?
+  next_run_at DateTime @default(now())
+
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@unique([proveedor, tipo, ref_id], name: "uq_outbox_micomercio_ref")
+  @@index([estado, next_run_at])
 }

@@ -4,7 +4,7 @@ import { useAuth } from './AuthContext';
 // Bloquea si no hay token; espera a que termine el loading
 export function RequireAuth({ children }) {
   const { loading, token } = useAuth();
-  if (loading) return null; // aquí puedes poner un Splash si quieres
+  if (loading) return null;
   if (!token) return <Navigate to="/login" replace />;
   return children;
 }

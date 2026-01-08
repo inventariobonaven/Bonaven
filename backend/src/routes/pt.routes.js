@@ -21,6 +21,16 @@ api.post('/liberacion', ctrl.liberarCongelado);
 api.get('/lotes', ctrl.listarLotesPT);
 api.get('/movimientos', ctrl.listarMovimientosPT);
 
+// ✅ NUEVO (para que ELLOS consulten)
+// 1) Consultar lote por IdProduccion (id autoincrement del lote PT)
+api.get('/lotes/:id', ctrl.obtenerLotePT);
+
+// 2) Consultar movimientos de un lote (auditoría por IdProduccion)
+api.get('/lotes/:id/movimientos', ctrl.movimientosPorLotePT);
+
+// 3) Consultar stock por IdProducto (micomercio_id)
+api.get('/stock', ctrl.stockPorMicomercioId);
+
 // Admin de lotes
 api.put('/lotes/:id', ctrl.actualizarLote);
 api.patch('/lotes/:id/estado', ctrl.toggleEstadoLote);
@@ -39,6 +49,11 @@ alias.post('/liberacion', ctrl.liberarCongelado);
 
 alias.get('/lotes', ctrl.listarLotesPT);
 alias.get('/movimientos', ctrl.listarMovimientosPT);
+
+// ✅ ALIAS (opcional, por si quieres también exponerlo al front)
+alias.get('/lotes/:id', ctrl.obtenerLotePT);
+alias.get('/lotes/:id/movimientos', ctrl.movimientosPorLotePT);
+alias.get('/stock', ctrl.stockPorMicomercioId);
 
 alias.put('/lotes/:id', ctrl.actualizarLote);
 alias.patch('/lotes/:id/estado', ctrl.toggleEstadoLote);

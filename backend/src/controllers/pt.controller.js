@@ -1,6 +1,7 @@
 // src/controllers/pt.controller.js
 const prisma = require('../database/prismaClient');
-
+const { enqueueMiComercioIngreso } = require('../services/outbox.service');
+const { enqueueOutbox } = require('../services/outbox.service');
 /* === helpers decimal milésimas === */
 const toM = (v) => Math.round(Number(v) * 1000);
 const fromM = (m) => (m / 1000).toFixed(3);
@@ -111,7 +112,7 @@ const consumirEmpaqueFIFO = async (tx, empaqueId, cantidadNecesariaStr, meta = {
   }
 };
 
-/* ==== bolsas necesarias (preferir paquetes) ==== */
+/* ==== bolsas necesarias  ==== */
 function calcularBolsasNecesarias(cantidadUnidades, bolsas_por_unidad, unidades_por_empaque) {
   const qty = Math.max(0, Number(cantidadUnidades) || 0);
   const uxe = Number(unidades_por_empaque || 0);
@@ -126,7 +127,7 @@ function calcularBolsasNecesarias(cantidadUnidades, bolsas_por_unidad, unidades_
   return 0;
 }
 
-/* ==== config de vencimiento (compat) ==== */
+/* ==== config de vencimiento  ==== */
 async function getVencimientoConfigForLote(tx, loteId, productoId, base) {
   const mov = await tx.stock_producto_terminado.findFirst({
     where: { lote_id: loteId, tipo: 'ENTRADA', ref_tipo: 'PRODUCCION_PT' },
@@ -157,7 +158,7 @@ async function getVencimientoConfigForLote(tx, loteId, productoId, base) {
   return null;
 }
 
-/* === Validación: múltiplo de unidades_por_empaque cuando se EMPAQUEA === */
+/* === Validación: múltiplo de unidades_por_empaque cuando se empaca === */
 function assertMultipleIfEmpaque(producto, cantidad) {
   const uxe = Number(producto?.unidades_por_empaque || 0);
   if (uxe > 0) {
@@ -173,12 +174,13 @@ function assertMultipleIfEmpaque(producto, cantidad) {
   }
 }
 
-/* 
+/*
    SALIDA PT (se usa para modo simple y modo items[])
    - NO abre transacción (la maneja el controller) */
 async function salidaPTCore(tx, payload) {
   let {
     producto_id,
+    micomercio_id,
     lote_id,
     loteId,
     cantidad,
@@ -186,13 +188,28 @@ async function salidaPTCore(tx, payload) {
     etapa_preferida,
     motivo = 'SALIDA_PT',
     fecha,
-    ref_tipo = 'VENTA', // opcional: para integraciones podrías mandar "FACTURACION"
-    ref_id = null, // opcional
+    ref_tipo = 'VENTA',
+    ref_id = null,
   } = payload;
 
   // ⚠️ Fecha normalizada LOCAL (evita -1 día en UI)
   const when = toDateOrNow(fecha);
   const loteIdNorm = Number(lote_id ?? loteId ?? 0) || null;
+
+  // Permitir identificar producto por micomercio_id si no viene producto_id
+  if (
+    !producto_id &&
+    micomercio_id !== undefined &&
+    micomercio_id !== null &&
+    micomercio_id !== ''
+  ) {
+    const prod = await tx.productos_terminados.findUnique({
+      where: { micomercio_id: Number(micomercio_id) },
+      select: { id: true },
+    });
+    if (!prod) throw new Error(`No existe producto con micomercio_id=${micomercio_id}`);
+    producto_id = prod.id;
+  }
 
   /* ---------- SALIDA POR LOTE (manual) ---------- */
   if (loteIdNorm) {
@@ -207,9 +224,8 @@ async function salidaPTCore(tx, payload) {
     if (!lote) throw new Error('Lote no encontrado');
     if (!VENTAS_ETAPAS.includes(String(lote.etapa)))
       throw new Error('El lote no está en etapa vendible');
-    if (lote.fecha_vencimiento && new Date(lote.fecha_vencimiento) < when) {
+    if (lote.fecha_vencimiento && new Date(lote.fecha_vencimiento) < when)
       throw new Error('El lote está vencido');
-    }
 
     let cantidadStr = cantidad;
     if (!cantidadStr && paquetes) {
@@ -322,127 +338,7 @@ async function salidaPTCore(tx, payload) {
 
 /* ===================== CONTROLADORES ===================== */
 
-/* --- ENTRADAS de PT (manuales) --- */
-// Acepta etapa_destino: 'EMPAQUE' | 'HORNEO'
-// - En EMPAQUE: valida múltiplos y consume bolsas.
-// - En HORNEO: NO valida múltiplos y NO consume bolsas.
-exports.ingresarPT = async (req, res) => {
-  const {
-    producto_id,
-    cantidad,
-    codigo,
-    lote_codigo,
-    fecha_ingreso,
-    fecha_vencimiento,
-    etapa_destino,
-  } = req.body;
-
-  const code = (lote_codigo || codigo || '').trim();
-  const dest = String(etapa_destino || 'EMPAQUE').toUpperCase();
-
-  if (!producto_id || !cantidad || !code || !fecha_ingreso) {
-    return res.status(400).json({ message: 'datos incompletos' });
-  }
-  if (!['EMPAQUE', 'HORNEO'].includes(dest)) {
-    return res.status(400).json({ message: 'etapa_destino inválida' });
-  }
-
-  try {
-    const out = await prisma.$transaction(async (tx) => {
-      const prod = await tx.productos_terminados.findUnique({ where: { id: Number(producto_id) } });
-      if (!prod || prod.estado === false) throw new Error('Producto no encontrado o inactivo');
-
-      // Validar múltiplo SOLO si la entrada va a EMPAQUE
-      if (dest === 'EMPAQUE') {
-        assertMultipleIfEmpaque(prod, cantidad);
-      }
-
-      // Consumir bolsas SOLO si va a EMPAQUE y el producto tiene empaque definido
-      if (dest === 'EMPAQUE' && prod.empaque_mp_id) {
-        const bolsasNecesarias = calcularBolsasNecesarias(
-          Number(cantidad),
-          prod.bolsas_por_unidad,
-          prod.unidades_por_empaque,
-        );
-        if (bolsasNecesarias > 0) {
-          await consumirEmpaqueFIFO(tx, prod.empaque_mp_id, String(bolsasNecesarias), {
-            motivo: 'CONSUMO_POR_INGRESO_PT',
-            ref_tipo: 'PT_INGRESO',
-            fecha: toDateOrNow(fecha_ingreso),
-          });
-          await recalcStockMP(tx, prod.empaque_mp_id);
-        }
-      }
-
-      // Buscar/crear lote (producto + codigo + etapa)
-      let lote = await tx.lotes_producto_terminado.findFirst({
-        where: { producto_id: Number(producto_id), codigo: code, etapa: dest },
-      });
-      if (!lote) {
-        lote = await tx.lotes_producto_terminado.create({
-          data: {
-            producto_id: Number(producto_id),
-            codigo: code,
-            cantidad: '0.000',
-            fecha_ingreso: toDateOrNow(fecha_ingreso),
-            fecha_vencimiento: fecha_vencimiento ? toDateOrNow(fecha_vencimiento) : null,
-            estado: 'DISPONIBLE',
-            etapa: dest, // EMPAQUE u HORNEO
-          },
-        });
-      }
-
-      // Movimiento ENTRADA
-      await tx.stock_producto_terminado.create({
-        data: {
-          producto_id: Number(producto_id),
-          lote_id: lote.id,
-          tipo: 'ENTRADA',
-          cantidad: String(cantidad),
-          fecha: toDateOrNow(fecha_ingreso),
-          motivo: 'INGRESO_PT',
-          ref_tipo: 'PT_INGRESO',
-        },
-      });
-
-      // Sumar al lote
-      const nuevaM = addM(toM(lote.cantidad), toM(cantidad));
-      lote = await tx.lotes_producto_terminado.update({
-        where: { id: lote.id },
-        data: { cantidad: fromM(nuevaM), estado: nuevaM === 0 ? 'AGOTADO' : 'DISPONIBLE' },
-      });
-
-      await recalcStockPTReady(tx, Number(producto_id));
-      return { lote_id: lote.id, producto_id: Number(producto_id), etapa: dest };
-    });
-
-    res.json(out);
-  } catch (e) {
-    if (e.code === 'P2002') {
-      return res.status(409).json({
-        message:
-          'Código de lote ya usado para este producto. Si quieres tener el mismo código en otra etapa, aplica la migración que hace único (producto,codigo,etapa).',
-      });
-    }
-    res.status(400).json({ message: e.message });
-  }
-};
-
 /* --- SALIDAS PT (FIFO o por LOTE), soporta paquetes y etapa preferida --- */
-/*
-  ✅ Ahora soporta DOS formatos:
-  1) Simple:
-     { producto_id, cantidad, fecha, motivo, ... }
-
-  2) Con items (aunque sea 1):
-     {
-       factura_id, fecha, motivo,
-       items: [{ producto_id, cantidad, ... }, ...]
-     }
-
-  - En ambos casos, reutiliza salidaPTCore().
-  - Si mandas factura_id, automáticamente se agrega al motivo como "FACTURA:<id>".
-*/
 exports.salidaPT = async (req, res) => {
   try {
     const {
@@ -466,21 +362,22 @@ exports.salidaPT = async (req, res) => {
         for (let i = 0; i < items.length; i++) {
           const it = items[i] || {};
 
-          // Campos por item (permitimos que el item sobreescriba fecha/motivo si lo mandan)
           const producto_id = it.producto_id;
+          const micomercio_id = it.micomercio_id;
           const cantidad = it.cantidad;
           const paquetes = it.paquetes;
           const lote_id = it.lote_id ?? it.loteId;
           const etapa_preferida = it.etapa_preferida;
 
-          if (!producto_id) throw new Error(`producto_id es obligatorio en items[${i}]`);
+          if (!producto_id && !micomercio_id) {
+            throw new Error(`producto_id o micomercio_id es obligatorio en items[${i}]`);
+          }
           if (cantidad === undefined && paquetes === undefined) {
             throw new Error(
               `cantidad o paquetes es obligatorio en items[${i}] (producto_id=${producto_id})`,
             );
           }
 
-          // Motivo enriquecido (queda en movimientos)
           const motivo = [
             it.motivo || motivoBase,
             factura_id ? `FACTURA:${String(factura_id).trim()}` : null,
@@ -492,6 +389,7 @@ exports.salidaPT = async (req, res) => {
 
           const r = await salidaPTCore(tx, {
             producto_id,
+            micomercio_id,
             cantidad,
             paquetes,
             lote_id,
@@ -504,7 +402,8 @@ exports.salidaPT = async (req, res) => {
 
           results.push({
             index: i,
-            producto_id: Number(producto_id),
+            producto_id: r.producto_id,
+            micomercio_id: micomercio_id ?? null,
             ...r,
           });
         }
@@ -520,7 +419,7 @@ exports.salidaPT = async (req, res) => {
         };
       }
 
-      // ---------- MODO SIMPLE (como estaba) ----------
+      // ---------- MODO SIMPLE ----------
       const motivo = [
         motivoBase,
         factura_id ? `FACTURA:${String(factura_id).trim()}` : null,
@@ -544,12 +443,7 @@ exports.salidaPT = async (req, res) => {
   }
 };
 
-/**
- * LISTAR LOTES (con filtros)
- * - Devuelve además:
- *   - cantidad_ud (entero), paquetes (entero o null), unidades_restantes
- *   - display_cantidad: "N pkg + R ud (U ud)" cuando aplica
- */
+/* --- LISTAR LOTES --- */
 exports.listarLotesPT = async (req, res) => {
   try {
     const { producto_id, etapa, estado, q, include_empty } = req.query;
@@ -582,9 +476,7 @@ exports.listarLotesPT = async (req, res) => {
       where,
       orderBy: [{ estado: 'asc' }, { fecha_vencimiento: 'asc' }, { fecha_ingreso: 'asc' }],
       include: {
-        productos_terminados: {
-          select: { id: true, nombre: true, unidades_por_empaque: true },
-        },
+        productos_terminados: { select: { id: true, nombre: true, unidades_por_empaque: true } },
       },
     });
 
@@ -606,13 +498,7 @@ exports.listarLotesPT = async (req, res) => {
           rest > 0 ? `${pkg} pkg + ${rest} ud (${uds} ud)` : `${pkg} pkg (${uds} ud)`;
       }
 
-      return {
-        ...l,
-        cantidad_ud: uds,
-        paquetes,
-        unidades_restantes,
-        display_cantidad,
-      };
+      return { ...l, cantidad_ud: uds, paquetes, unidades_restantes, display_cantidad };
     });
 
     res.json(enriched);
@@ -621,7 +507,155 @@ exports.listarLotesPT = async (req, res) => {
   }
 };
 
-/* --- MOVER ETAPA (CONGELADO -> EMPAQUE | HORNEO) --- */
+// ✅ AJUSTE: ingresarPT y moverEtapa (solo pega estas 2 funciones en tu pt.controller.js)
+// Requiere que arriba tengas:
+// const { enqueueOutbox } = require('../services/outbox.service');
+
+exports.ingresarPT = async (req, res) => {
+  const {
+    producto_id,
+    cantidad,
+    codigo,
+    lote_codigo,
+    fecha_ingreso,
+    fecha_vencimiento,
+    etapa_destino,
+  } = req.body;
+
+  const code = (lote_codigo || codigo || '').trim();
+  const dest = String(etapa_destino || 'EMPAQUE').toUpperCase();
+
+  if (!producto_id || cantidad === undefined || cantidad === null || !code || !fecha_ingreso) {
+    return res.status(400).json({ message: 'datos incompletos' });
+  }
+  if (!['EMPAQUE', 'HORNEO'].includes(dest)) {
+    return res.status(400).json({ message: 'etapa_destino inválida' });
+  }
+
+  try {
+    const out = await prisma.$transaction(async (tx) => {
+      const prod = await tx.productos_terminados.findUnique({
+        where: { id: Number(producto_id) },
+        select: {
+          id: true,
+          estado: true,
+          empaque_mp_id: true,
+          bolsas_por_unidad: true,
+          unidades_por_empaque: true,
+          micomercio_id: true,
+        },
+      });
+      if (!prod || prod.estado === false) throw new Error('Producto no encontrado o inactivo');
+
+      // Validar múltiplo SOLO si la entrada va a EMPAQUE
+      if (dest === 'EMPAQUE') assertMultipleIfEmpaque(prod, cantidad);
+
+      // Consumir bolsas SOLO si va a EMPAQUE y el producto tiene empaque definido
+      if (dest === 'EMPAQUE' && prod.empaque_mp_id) {
+        const bolsasNecesarias = calcularBolsasNecesarias(
+          Number(cantidad),
+          prod.bolsas_por_unidad,
+          prod.unidades_por_empaque,
+        );
+        if (bolsasNecesarias > 0) {
+          await consumirEmpaqueFIFO(tx, prod.empaque_mp_id, String(bolsasNecesarias), {
+            motivo: 'CONSUMO_POR_INGRESO_PT',
+            ref_tipo: 'PT_INGRESO',
+            fecha: toDateOrNow(fecha_ingreso),
+          });
+          await recalcStockMP(tx, prod.empaque_mp_id);
+        }
+      }
+
+      // Buscar/crear lote (producto + codigo + etapa)
+      let lote = await tx.lotes_producto_terminado.findFirst({
+        where: { producto_id: Number(producto_id), codigo: code, etapa: dest },
+      });
+
+      if (!lote) {
+        lote = await tx.lotes_producto_terminado.create({
+          data: {
+            producto_id: Number(producto_id),
+            codigo: code,
+            cantidad: '0.000',
+            fecha_ingreso: toDateOrNow(fecha_ingreso),
+            fecha_vencimiento: fecha_vencimiento ? toDateOrNow(fecha_vencimiento) : null,
+            estado: 'DISPONIBLE',
+            etapa: dest,
+          },
+        });
+      }
+
+      // Movimiento ENTRADA
+      await tx.stock_producto_terminado.create({
+        data: {
+          producto_id: Number(producto_id),
+          lote_id: lote.id,
+          tipo: 'ENTRADA',
+          cantidad: String(cantidad),
+          fecha: toDateOrNow(fecha_ingreso),
+          motivo: 'INGRESO_PT',
+          ref_tipo: 'PT_INGRESO',
+          ref_id: null,
+        },
+      });
+
+      // Sumar al lote
+      const nuevaM = addM(toM(lote.cantidad), toM(cantidad));
+      lote = await tx.lotes_producto_terminado.update({
+        where: { id: lote.id },
+        data: {
+          cantidad: fromM(nuevaM),
+          estado: nuevaM === 0 ? 'AGOTADO' : 'DISPONIBLE',
+        },
+      });
+
+      // Recalcular stock vendible
+      await recalcStockPTReady(tx, Number(producto_id));
+
+      // ✅ Encolar ingreso a MiComercio SOLO si etapa vendible (EMPAQUE/HORNEO)
+      if (['EMPAQUE', 'HORNEO'].includes(dest)) {
+        const prodMico = await tx.productos_terminados.findUnique({
+          where: { id: Number(producto_id) },
+          select: { micomercio_id: true },
+        });
+
+        if (prodMico?.micomercio_id) {
+          const payload = {
+            IdUser: Number(process.env.MICOMERCIO_IDUSER || 0),
+            IdProduccion: lote.id,
+            details: [
+              {
+                IdProducto: String(prodMico.micomercio_id),
+                Cantidad: Number(cantidad),
+                Comentarios: `Ingreso PT ${dest} (lote ${code})`,
+              },
+            ],
+          };
+
+          await enqueueOutbox(tx, {
+            tipo: 'INGRESO_PT',
+            ref_id: lote.id,
+            payload,
+          });
+        }
+      }
+
+      return { lote_id: lote.id, producto_id: Number(producto_id), etapa: dest };
+    });
+
+    res.json(out);
+  } catch (e) {
+    if (e.code === 'P2002') {
+      return res.status(409).json({
+        message:
+          'Código de lote ya usado para este producto. Si quieres tener el mismo código en otra etapa, aplica la migración que hace único (producto,codigo,etapa).',
+      });
+    }
+    res.status(400).json({ message: e.message });
+  }
+};
+
 exports.moverEtapa = async (req, res) => {
   const id = Number(req.params.id || req.body.lote_id);
   const { nueva_etapa, cantidad, fecha } = req.body;
@@ -646,6 +680,7 @@ exports.moverEtapa = async (req, res) => {
               bolsas_por_unidad: true,
               unidades_por_empaque: true,
               requiere_congelacion_previa: true,
+              micomercio_id: true,
             },
           },
         },
@@ -653,7 +688,7 @@ exports.moverEtapa = async (req, res) => {
       if (!src) throw new Error('Lote origen no encontrado');
 
       // Solo mover DESDE CONGELADO
-      const srcEtapa = String(src.etapa || 'EMPAQUE').toUpperCase();
+      const srcEtapa = String(src.etapa || '').toUpperCase();
       if (src.estado !== 'DISPONIBLE' || Number(src.cantidad) <= 0) {
         throw new Error('El lote origen no está disponible');
       }
@@ -682,14 +717,15 @@ exports.moverEtapa = async (req, res) => {
 
       const fechaMov = toDateOrNow(fecha);
 
-      // Reusar un código por destino: “-E” para EMPAQUE o “-H” para HORNEO
+      // Código destino: “-E” para EMPAQUE o “-H” para HORNEO
       const suf = dest === 'EMPAQUE' ? 'E' : 'H';
       const codigoDestino = `${src.codigo}-${suf}`;
 
-      // upsert lote destino
+      // upsert destino por (producto,codigo,etapa) (tu uq_ptprod_codigo_etapa)
       let dst = await tx.lotes_producto_terminado.findFirst({
-        where: { producto_id: src.producto_id, codigo: codigoDestino },
+        where: { producto_id: src.producto_id, codigo: codigoDestino, etapa: dest },
       });
+
       if (!dst) {
         dst = await tx.lotes_producto_terminado.create({
           data: {
@@ -702,14 +738,9 @@ exports.moverEtapa = async (req, res) => {
             etapa: dest,
           },
         });
-      } else if (dst.etapa !== dest) {
-        await tx.lotes_producto_terminado.update({
-          where: { id: dst.id },
-          data: { etapa: dest },
-        });
       }
 
-      // SALIDA del lote origen (CONGELADO)
+      // SALIDA del origen (CONGELADO)
       const srcDispM = toM(src.cantidad);
       const moverM = toM(qty);
       const nuevaSrcM = subM(srcDispM, moverM);
@@ -726,13 +757,14 @@ exports.moverEtapa = async (req, res) => {
           ref_id: dst.id,
         },
       });
+
       await tx.lotes_producto_terminado.update({
         where: { id: src.id },
-        data: { cantidad: fromM(nuevaSrcM), estado: nuevaSrcM === 0 ? 'AGOTADO' : 'DISPONIBLE' },
+        data: {
+          cantidad: fromM(nuevaSrcM),
+          estado: nuevaSrcM === 0 ? 'AGOTADO' : 'DISPONIBLE',
+        },
       });
-
-      // ENTRADA en lote destino
-      const nuevaDstM = addM(toM(dst.cantidad), moverM);
 
       // CONSUMO DE EMPAQUES (solo si destino = EMPAQUE)
       let bolsasConsumidas = 0;
@@ -759,20 +791,23 @@ exports.moverEtapa = async (req, res) => {
         }
       }
 
-      // FECHA DE VENCIMIENTO: usa la del origen si el destino no la tenía
+      // Actualizar destino cantidad + vencimiento heredado
+      const nuevaDstM = addM(toM(dst.cantidad), moverM);
       const dstVto = dst.fecha_vencimiento || src.fecha_vencimiento || null;
 
-      await tx.lotes_producto_terminado.update({
+      dst = await tx.lotes_producto_terminado.update({
         where: { id: dst.id },
         data: {
           cantidad: fromM(nuevaDstM),
-          etapa: dest,
-          fecha_ingreso: dst.fecha_ingreso || fechaMov,
           estado: 'DISPONIBLE',
+          etapa: dest,
+          // mantén fecha_ingreso original del destino si ya existía
+          fecha_ingreso: dst.fecha_ingreso || fechaMov,
           ...(dstVto ? { fecha_vencimiento: dstVto } : {}),
         },
       });
 
+      // ENTRADA en destino
       await tx.stock_producto_terminado.create({
         data: {
           producto_id: src.producto_id,
@@ -788,6 +823,28 @@ exports.moverEtapa = async (req, res) => {
 
       // Recalcular stock vendible
       await recalcStockPTReady(tx, src.producto_id);
+
+      // ✅ Encolar ingreso a MiComercio (destino vendible + producto mapeado)
+      const micoId = src.productos_terminados?.micomercio_id;
+      if (micoId && ['EMPAQUE', 'HORNEO'].includes(dest)) {
+        const payload = {
+          IdUser: Number(process.env.MICOMERCIO_IDUSER || 0),
+          IdProduccion: dst.id,
+          details: [
+            {
+              IdProducto: String(micoId),
+              Cantidad: Number(qty),
+              Comentarios: `Cambio etapa CONGELADO→${dest} (origen ${src.codigo} destino ${codigoDestino})`,
+            },
+          ],
+        };
+
+        await enqueueOutbox(tx, {
+          tipo: 'INGRESO_PT',
+          ref_id: dst.id,
+          payload,
+        });
+      }
 
       return {
         origen: {
@@ -834,13 +891,10 @@ exports.actualizarLote = async (req, res) => {
 
     const lote = await prisma.lotes_producto_terminado.findUnique({
       where: { id },
-      include: {
-        productos_terminados: { select: { unidades_por_empaque: true } },
-      },
+      include: { productos_terminados: { select: { unidades_por_empaque: true } } },
     });
     if (!lote) return res.status(404).json({ message: 'Lote no encontrado' });
 
-    // ---- Resolver nueva cantidad (en unidades)
     let newCantidad = undefined;
     const uxe = Number(lote.productos_terminados?.unidades_por_empaque || 0);
 
@@ -866,26 +920,21 @@ exports.actualizarLote = async (req, res) => {
       return res.status(400).json({ message: 'cantidad inválida' });
     }
 
-    // ---- Fechas y etapa
     const hasFV = Object.prototype.hasOwnProperty.call(req.body, 'fecha_vencimiento');
     const baseUpdate = {};
     if (codigo !== undefined) baseUpdate.codigo = String(codigo).trim();
-    if (fecha_ingreso !== undefined) {
+    if (fecha_ingreso !== undefined)
       baseUpdate.fecha_ingreso = fecha_ingreso ? toDateOrNow(fecha_ingreso) : null;
-    }
-    if (hasFV) {
+    if (hasFV)
       baseUpdate.fecha_vencimiento = fecha_vencimiento ? toDateOrNow(fecha_vencimiento) : null;
-    }
     if (etapa !== undefined) {
       const e = String(etapa).toUpperCase();
-      if (!['EMPAQUE', 'HORNEO', 'CONGELADO'].includes(e)) {
+      if (!['EMPAQUE', 'HORNEO', 'CONGELADO'].includes(e))
         return res.status(400).json({ message: 'etapa inválida' });
-      }
       baseUpdate.etapa = e;
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      // ¿Hay ajuste de cantidad?
       if (newCantidad !== undefined && newCantidad !== Math.round(Number(lote.cantidad))) {
         const actualM = Math.round(Number(lote.cantidad) * 1000);
         const targetM = Math.round(Number(newCantidad) * 1000);
@@ -912,11 +961,9 @@ exports.actualizarLote = async (req, res) => {
           },
         });
       } else if (Object.keys(baseUpdate).length) {
-        // solo metadatos (código/fechas/etapa)
         await tx.lotes_producto_terminado.update({ where: { id }, data: baseUpdate });
       }
 
-      // Recalcular stock vendible si el lote está (o queda) en etapa vendible
       const etapaFinal = baseUpdate.etapa ?? lote.etapa;
       if (['EMPAQUE', 'HORNEO'].includes(String(etapaFinal))) {
         await recalcStockPTReady(tx, lote.producto_id);
@@ -938,7 +985,7 @@ exports.actualizarLote = async (req, res) => {
   }
 };
 
-// === NUEVO: liberar unidades desde CONGELADO (descarga como LIBERACION) ===
+// === liberar unidades desde CONGELADO (descarga como LIBERACION) ===
 exports.liberarCongelado = async (req, res) => {
   try {
     const { lote_id, cantidad, fecha } = req.body;
@@ -954,12 +1001,9 @@ exports.liberarCongelado = async (req, res) => {
         select: { id: true, producto_id: true, etapa: true, estado: true, cantidad: true },
       });
       if (!lote) throw new Error('Lote no encontrado');
-      if (String(lote.etapa).toUpperCase() !== 'CONGELADO') {
+      if (String(lote.etapa).toUpperCase() !== 'CONGELADO')
         throw new Error('Solo se puede liberar desde la etapa CONGELADO');
-      }
-      if (lote.estado !== 'DISPONIBLE') {
-        throw new Error('El lote no está disponible');
-      }
+      if (lote.estado !== 'DISPONIBLE') throw new Error('El lote no está disponible');
 
       const dispM = toM(lote.cantidad);
       const usarM = toM(qty);
@@ -967,7 +1011,6 @@ exports.liberarCongelado = async (req, res) => {
 
       const when = toDateOrNow(fecha);
 
-      // Movimiento SALIDA con motivo LIBERACION
       await tx.stock_producto_terminado.create({
         data: {
           producto_id: lote.producto_id,
@@ -987,7 +1030,6 @@ exports.liberarCongelado = async (req, res) => {
         data: { cantidad: fromM(nuevaM), estado: nuevaM === 0 ? 'AGOTADO' : 'DISPONIBLE' },
       });
 
-      // CONGELADO no cuenta a stock vendible; no recalc necesario
       return {
         lote_id: upd.id,
         producto_id: upd.producto_id,
@@ -1003,7 +1045,7 @@ exports.liberarCongelado = async (req, res) => {
   }
 };
 
-/* --- TOGGLE ESTADO (acepta toggle vacío o set explícito) --- */
+/* --- TOGGLE ESTADO --- */
 exports.toggleEstadoLote = async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -1023,7 +1065,6 @@ exports.toggleEstadoLote = async (req, res) => {
       nuevoEstado =
         up === 'DISPONIBLE' ? (Number(lote.cantidad) > 0 ? 'DISPONIBLE' : 'AGOTADO') : up;
     } else {
-      // toggle simple con body {}
       nuevoEstado =
         lote.estado === 'INACTIVO'
           ? Number(lote.cantidad) > 0
@@ -1053,7 +1094,6 @@ exports.eliminarLote = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
-    // bloquear si tiene SALIDAS
     const salidas = await prisma.stock_producto_terminado.count({
       where: { lote_id: id, tipo: 'SALIDA' },
     });
@@ -1067,36 +1107,37 @@ exports.eliminarLote = async (req, res) => {
       where: { id },
       select: { producto_id: true, etapa: true },
     });
+
     if (VENTAS_ETAPAS.includes(String(lote.etapa))) {
       await recalcStockPTReady(prisma, lote.producto_id);
     }
+
     res.json({ ok: true });
   } catch (e) {
-    if (e.code === 'P2003') {
+    if (e.code === 'P2003')
       return res
         .status(409)
         .json({ message: 'No se puede eliminar: el lote tiene movimientos asociados' });
-    }
     res.status(400).json({ message: e.message });
   }
 };
 
-/* --- LISTAR MOVIMIENTOS PT (enriquecidos + filtros) --- */
+/* --- LISTAR MOVIMIENTOS PT --- */
 exports.listarMovimientosPT = async (req, res) => {
   try {
     const { q, producto_id, tipo, desde, hasta, pageSize = '300' } = req.query;
 
     const where = {};
     if (producto_id) where.producto_id = Number(producto_id);
-    if (tipo && ['ENTRADA', 'SALIDA', 'AJUSTE'].includes(String(tipo).toUpperCase())) {
+    if (tipo && ['ENTRADA', 'SALIDA', 'AJUSTE'].includes(String(tipo).toUpperCase()))
       where.tipo = String(tipo).toUpperCase();
-    }
+
     if (desde || hasta) {
       where.fecha = {};
-      if (desde) where.fecha.gte = toDateOrNow(desde); // local 00:00
+      if (desde) where.fecha.gte = toDateOrNow(desde);
       if (hasta) {
-        const h = toDateOrNow(hasta); // local 00:00 de ese día
-        h.setHours(23, 59, 59, 999); // día completo (local)
+        const h = toDateOrNow(hasta);
+        h.setHours(23, 59, 59, 999);
         where.fecha.lte = h;
       }
     }
@@ -1172,5 +1213,80 @@ exports.listarMovimientosPT = async (req, res) => {
   } catch (e) {
     console.error('[listarMovimientosPT]', e);
     res.status(500).json({ message: e?.message || 'Error listando movimientos PT' });
+  }
+};
+// ✅ GET /api/pt/lotes/:id  (IdProduccion = id del lote PT)
+exports.obtenerLotePT = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: 'id inválido' });
+
+    const lote = await prisma.lotes_producto_terminado.findUnique({
+      where: { id },
+      include: {
+        productos_terminados: {
+          select: { id: true, nombre: true, micomercio_id: true, unidades_por_empaque: true },
+        },
+      },
+    });
+
+    if (!lote) return res.status(404).json({ message: 'Lote no encontrado' });
+
+    res.json(lote);
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+// ✅ GET /api/pt/lotes/:id/movimientos  (auditoría por lote)
+exports.movimientosPorLotePT = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ message: 'id inválido' });
+
+    const items = await prisma.stock_producto_terminado.findMany({
+      where: { lote_id: id },
+      orderBy: [{ fecha: 'desc' }, { id: 'desc' }],
+      select: {
+        id: true,
+        fecha: true,
+        producto_id: true,
+        lote_id: true,
+        tipo: true,
+        cantidad: true,
+        motivo: true,
+        ref_tipo: true,
+        ref_id: true,
+      },
+    });
+
+    res.json({ lote_id: id, total: items.length, items });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+// ✅ GET /api/pt/stock?micomercio_id=442479
+exports.stockPorMicomercioId = async (req, res) => {
+  try {
+    const micomercio_id = Number(req.query.micomercio_id);
+    if (!micomercio_id) return res.status(400).json({ message: 'micomercio_id requerido' });
+
+    const prod = await prisma.productos_terminados.findUnique({
+      where: { micomercio_id },
+      select: { id: true, nombre: true, micomercio_id: true, stock_total: true },
+    });
+
+    if (!prod) return res.status(404).json({ message: 'Producto no encontrado' });
+
+    // stock_total ya es vendible (EMPAQUE/HORNEO) por tu recalcStockPTReady
+    res.json({
+      producto_id: prod.id,
+      micomercio_id: prod.micomercio_id,
+      nombre: prod.nombre,
+      stock_vendible: prod.stock_total,
+    });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
   }
 };

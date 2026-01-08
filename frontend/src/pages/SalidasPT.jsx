@@ -2,8 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/client';
 
-/* UI helpers reutilizables:
-   Centralizan feedback (toast) y contenedor modal para acciones de registro, manteniendo consistencia visual/UX. */
+/* UI helpers reutilizables */
 function Toast({ type = 'success', message, onClose }) {
   if (!message) return null;
   return (
@@ -47,7 +46,6 @@ function Modal({ open, title, children, onClose }) {
       }}
       onClick={onClose}
     >
-      {/* stopPropagation evita cerrar el modal al hacer click dentro del contenido */}
       <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0 }}>{title}</h3>
@@ -61,13 +59,17 @@ function Modal({ open, title, children, onClose }) {
   );
 }
 
-/* Helpers de formato/normalización:
-   - Evitan NaN y garantizan enteros al mostrar cantidades.
-   - Unifican presentación de etapa y cantidades por empaque (paquetes + unidades). */
+/* Helpers */
 function toInt(n) {
   const x = Number(n);
   return Number.isFinite(x) ? Math.round(x) : 0;
 }
+const toPosIntOrNull = (v) => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = parseInt(v, 10);
+  if (Number.isNaN(n) || n <= 0) return null;
+  return n;
+};
 
 function etapaLabel(etapa) {
   const e = String(etapa || '').toUpperCase();
@@ -82,8 +84,6 @@ function formatCantidadLote(l) {
   const uds = toInt(l.cantidad);
   const uxe = Number(l.productos_terminados?.unidades_por_empaque || 0);
 
-  /* Regla de negocio de visualización:
-     Solo en EMPAQUE/HORNEO tiene sentido descomponer en paquetes (si el producto define unidades_por_empaque). */
   if ((etapa === 'EMPAQUE' || etapa === 'HORNEO') && uxe > 0) {
     const pkg = Math.floor(uds / uxe);
     const rest = uds % uxe;
@@ -94,18 +94,17 @@ function formatCantidadLote(l) {
   return `${uds} ud`;
 }
 
-/* Modelo del formulario:
-   - modo FIFO: el backend decide qué lotes descontar en orden FIFO (y opcionalmente prioriza etapa).
-   - modo LOTE: el usuario elige el lote exacto (salida manual).
-   - venderPor: permite registrar salida por unidades o por paquetes (requiere unidades_por_empaque). */
+/* Modelo del formulario */
 const emptySalida = {
+  buscarPor: 'PRODUCTO', // PRODUCTO | MICOMERCIO
   producto_id: '',
+  micomercio_id: '',
   modo: 'FIFO', // FIFO | LOTE
   lote_id: '',
   venderPor: 'UNIDADES', // UNIDADES | PAQUETES
-  cantidad: '', // unidades
-  paquetes: '', // paquetes
-  etapa_preferida: '', // "", "EMPAQUE", "HORNEO" (solo para FIFO)
+  cantidad: '',
+  paquetes: '',
+  etapa_preferida: '',
   fecha: new Date().toISOString().slice(0, 10),
   motivo: '',
 };
@@ -120,31 +119,27 @@ function SalidaPTForm({
 }) {
   const [form, setForm] = useState(initial);
 
-  /* Sincroniza el estado local cuando cambian valores iniciales (ej. reabrir modal/limpiar formulario). */
   useEffect(() => setForm(initial), [initial]);
 
-  /* Collator ES:
-     Garantiza orden consistente en selects (ignorando acentos/mayúsculas y usando orden natural). */
   const collatorEs = useMemo(
     () => new Intl.Collator('es', { sensitivity: 'base', numeric: true }),
     [],
   );
 
-  /* Producto seleccionado:
-     Se usa para leer unidades_por_empaque y validar "vender por paquetes". */
   const prodSel =
     Array.isArray(productos) && productos.find((p) => String(p.id) === String(form.producto_id));
   const unidadesPorEmpaque = Number(prodSel?.unidades_por_empaque || 0);
 
   const isEnteroPositivo = (v) => Number.isInteger(Number(v)) && Number(v) > 0;
 
-  /* Validación crítica antes de enviar:
-     - En modo LOTE exige lote_id.
-     - En modo PAQUETES exige unidades_por_empaque configuradas.
-     - Evita enviar cantidades vacías/negativas al backend. */
+  const micOk =
+    form.buscarPor === 'MICOMERCIO' ? toPosIntOrNull(form.micomercio_id) !== null : true;
+  const productoOk = form.buscarPor === 'PRODUCTO' ? String(form.producto_id || '') !== '' : true;
+
   const canSubmit =
-    String(form.producto_id || '') !== '' &&
     String(form.fecha || '') !== '' &&
+    micOk &&
+    productoOk &&
     (form.modo === 'LOTE'
       ? String(form.lote_id || '') !== '' &&
         ((form.venderPor === 'UNIDADES' && isEnteroPositivo(form.cantidad)) ||
@@ -159,25 +154,30 @@ function SalidaPTForm({
   function handleChange(e) {
     const { name, value } = e.target;
 
-    /* Cambio de producto:
-       - Resetea lote seleccionado.
-       - Dispara carga de lotes disponibles del producto (solo para modo LOTE). */
+    if (name === 'buscarPor') {
+      // Al cambiar método de búsqueda, limpiamos campos para evitar conflictos
+      setForm((f) => ({
+        ...f,
+        buscarPor: value,
+        producto_id: '',
+        micomercio_id: '',
+        lote_id: '',
+      }));
+      onChangeProducto(''); // limpia lotes en el parent
+      return;
+    }
+
     if (name === 'producto_id') {
       setForm((f) => ({ ...f, producto_id: value, lote_id: '' }));
       onChangeProducto(value);
       return;
     }
 
-    /* Cambio de modo:
-       - En FIFO no se usa lote_id (se limpia para evitar inconsistencias).
-       - En LOTE se mantiene/permite seleccionar lote. */
     if (name === 'modo') {
       setForm((f) => ({ ...f, modo: value, lote_id: value === 'FIFO' ? '' : f.lote_id }));
       return;
     }
 
-    /* Cambio venderPor:
-       - Evita que queden ambas entradas diligenciadas (unidades y paquetes) al mismo tiempo. */
     if (name === 'venderPor') {
       setForm((f) =>
         value === 'UNIDADES'
@@ -194,9 +194,9 @@ function SalidaPTForm({
     e.preventDefault();
     if (!canSubmit) return;
 
-    /* Modo LOTE:
-       Se envía lote_id y cantidad en UNIDADES (normalizada).
-       Si el usuario vende por paquetes, se convierte a unidades aquí para que el backend procese siempre una sola unidad de medida. */
+    const micomercio_id = prodSel?.micomercio_id ?? undefined;
+
+    // ----- MODO LOTE -----
     if (form.modo === 'LOTE') {
       const cantidadUnidades =
         form.venderPor === 'UNIDADES'
@@ -210,19 +210,20 @@ function SalidaPTForm({
         cantidad: String(cantidadUnidades),
         fecha: form.fecha,
         motivo: form.motivo?.trim() || undefined,
+
+        ...(micomercio_id ? { micomercio_id: Number(micomercio_id) } : {}),
       });
       return;
     }
 
-    /* Modo FIFO:
-       Se envía producto_id y una de estas dos opciones:
-       - cantidad (unidades) o
-       - paquetes (para que el backend convierta/considere presentación).
-       Además permite etapa_preferida para intentar descontar primero de EMPAQUE u HORNEO si existe stock ahí. */
+    // ----- MODO FIFO -----
     const base = {
       producto_id: Number(form.producto_id),
       fecha: form.fecha,
       motivo: form.motivo?.trim() || undefined,
+
+      // ✅ opcional
+      ...(micomercio_id ? { micomercio_id: Number(micomercio_id) } : {}),
     };
 
     const payload =
@@ -237,8 +238,6 @@ function SalidaPTForm({
     onSubmit(payload);
   }
 
-  /* Opciones ordenadas:
-     Mejora UX y consistencia entre pantallas (listas alfabéticas). */
   const prodOpts = useMemo(
     () =>
       [...(Array.isArray(productos) ? productos : [])].sort((a, b) =>
@@ -259,23 +258,56 @@ function SalidaPTForm({
     <form onSubmit={submit}>
       <div className="form-grid">
         <div>
-          <label>Producto terminado</label>
-          <select name="producto_id" value={form.producto_id} onChange={handleChange} required>
-            <option value="">— Seleccione —</option>
-            {prodOpts.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nombre}
-              </option>
-            ))}
+          <label>Buscar producto por</label>
+          <select name="buscarPor" value={form.buscarPor} onChange={handleChange}>
+            <option value="PRODUCTO">Producto (ID interno)</option>
+            <option value="MICOMERCIO">MiComercio ID (externo)</option>
           </select>
-          {form.venderPor === 'PAQUETES' && (
-            <div className="muted" style={{ marginTop: 4 }}>
-              {unidadesPorEmpaque > 0
-                ? `1 paquete = ${unidadesPorEmpaque} uds`
-                : 'Este producto no tiene unidades por empaque configuradas'}
-            </div>
-          )}
         </div>
+
+        {form.buscarPor === 'PRODUCTO' ? (
+          <div>
+            <label>Producto terminado</label>
+            <select
+              name="producto_id"
+              value={form.producto_id}
+              onChange={handleChange}
+              required
+              disabled={form.buscarPor !== 'PRODUCTO'}
+            >
+              <option value="">— Seleccione —</option>
+              {prodOpts.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre}
+                </option>
+              ))}
+            </select>
+
+            {form.venderPor === 'PAQUETES' && (
+              <div className="muted" style={{ marginTop: 4 }}>
+                {unidadesPorEmpaque > 0
+                  ? `1 paquete = ${unidadesPorEmpaque} uds`
+                  : 'Este producto no tiene unidades por empaque configuradas'}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div>
+            <label>MiComercio ID</label>
+            <input
+              name="micomercio_id"
+              type="number"
+              min="1"
+              step="1"
+              value={form.micomercio_id}
+              onChange={handleChange}
+              required
+            />
+            <div className="muted" style={{ marginTop: 4 }}>
+              Usa este modo si aún no tienes el producto creado con id interno.
+            </div>
+          </div>
+        )}
 
         <div>
           <label>Modo de salida</label>
@@ -294,6 +326,11 @@ function SalidaPTForm({
               onChange={handleChange}
               disabled={!form.producto_id}
               required
+              title={
+                form.buscarPor === 'MICOMERCIO'
+                  ? 'Para modo LOTE debes seleccionar producto interno (porque los lotes son internos)'
+                  : ''
+              }
             >
               <option value="">— Seleccione —</option>
               {lotesOpts.map((l) => (
@@ -303,6 +340,11 @@ function SalidaPTForm({
                 </option>
               ))}
             </select>
+            {form.buscarPor === 'MICOMERCIO' && (
+              <div className="muted" style={{ marginTop: 4 }}>
+                Nota: en modo <b>LOTE</b> necesitas elegir el producto interno para cargar lotes.
+              </div>
+            )}
           </div>
         )}
 
@@ -388,18 +430,15 @@ function SalidaPTForm({
   );
 }
 
-/* Pantalla Salidas PT:
-   - Muestra lotes "vendibles" como referencia: solo DISPONIBLE y etapa EMPAQUE/HORNEO.
-   - El registro real se hace por POST /pt/salidas (FIFO o por lote).
-   - Se recarga tabla y lotes del formulario tras registrar una salida para mantener consistencia de stock. */
+/* Pantalla Salidas PT */
 export default function SalidasPT() {
   const [productos, setProductos] = useState([]);
   const [loadingProductos, setLoadingProductos] = useState(true);
 
-  const [lotes, setLotes] = useState([]); // lotes visibles en tabla (filtro)
+  const [lotes, setLotes] = useState([]);
   const [loadingLotes, setLoadingLotes] = useState(true);
 
-  const [lotesDeProducto, setLotesDeProducto] = useState([]); // lotes DISPONIBLES para el form
+  const [lotesDeProducto, setLotesDeProducto] = useState([]);
   const [loadingLotesForm, setLoadingLotesForm] = useState(false);
 
   const [filters, setFilters] = useState({ q: '', producto_id: '' });
@@ -430,9 +469,6 @@ export default function SalidasPT() {
       if (filters.producto_id) params.set('producto_id', String(filters.producto_id));
       const { data } = await api.get(`/pt/lotes?${params.toString()}`);
       const arr = Array.isArray(data) ? data : [];
-
-      /* Regla de negocio (vendibles en esta pantalla):
-         Solo se listan lotes DISPONIBLE y etapa EMPAQUE/HORNEO (CONGELADO no es vendible aquí). */
       const vendibles = arr.filter(
         (l) =>
           l.estado === 'DISPONIBLE' &&
@@ -448,21 +484,17 @@ export default function SalidasPT() {
     }
   }
 
-  /* Carga inicial de catálogos y lotes vendibles. */
   useEffect(() => {
     loadProductos();
     loadLotes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* Recarga cuando cambia el filtro de producto (server-side). */
   useEffect(() => {
     loadLotes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.producto_id]);
 
-  /* Carga de lotes disponibles para el formulario (cuando se selecciona producto):
-     Se filtra a vendibles para evitar que el usuario intente sacar de lotes no aptos. */
   async function onChangeProductoForm(prodId) {
     if (!prodId) {
       setLotesDeProducto([]);
@@ -486,19 +518,13 @@ export default function SalidasPT() {
     }
   }
 
-  /* Registro de salida:
-     - POST /pt/salidas recibe payload FIFO o por lote.
-     - Al finalizar, se recarga la tabla y (si aplica) los lotes del producto del formulario para reflejar el nuevo stock. */
   async function registrarSalida(payload) {
     setSubmitting(true);
     try {
       await api.post('/pt/salidas', payload);
       setToast({ type: 'success', message: 'Salida registrada' });
       setModalOpen(false);
-      await Promise.all([
-        loadLotes(),
-        filters.producto_id ? onChangeProductoForm(filters.producto_id) : Promise.resolve(),
-      ]);
+      await Promise.all([loadLotes()]);
     } catch (e) {
       setToast({
         type: 'error',
@@ -509,7 +535,6 @@ export default function SalidasPT() {
     }
   }
 
-  /* Filtro en cliente (texto) para la tabla, sobre los lotes vendibles ya cargados. */
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
     return lotes.filter((l) => {
@@ -521,7 +546,6 @@ export default function SalidasPT() {
     });
   }, [lotes, filters.q]);
 
-  /* Orden descendente por fecha de ingreso (y por id como tie-break) para mostrar lo más reciente primero. */
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
       const da = new Date(a.fecha_ingreso || 0).getTime();
@@ -531,7 +555,6 @@ export default function SalidasPT() {
     });
   }, [filtered]);
 
-  /* Collator y productos ordenados para el select de filtros. */
   const collatorEs = useMemo(
     () => new Intl.Collator('es', { sensitivity: 'base', numeric: true }),
     [],
@@ -570,9 +593,6 @@ export default function SalidasPT() {
       <div className="card">
         {header}
 
-        {/* Filtros:
-           - q filtra en cliente por código o nombre de producto.
-           - producto_id filtra en servidor (recarga loadLotes con query param). */}
         <div
           className="filters"
           style={{ marginTop: 12, display: 'grid', gap: 8, gridTemplateColumns: '1fr 240px' }}
@@ -595,8 +615,6 @@ export default function SalidasPT() {
           </select>
         </div>
 
-        {/* Tabla de lotes disponibles (referencia operativa):
-           Lista únicamente lotes vendibles (DISPONIBLE + etapa EMPAQUE/HORNEO). */}
         <div style={{ marginTop: 12 }}>
           <table className="table">
             <thead>
@@ -656,8 +674,6 @@ export default function SalidasPT() {
         </div>
       </div>
 
-      {/* Modal salida:
-         El formulario arma el payload (FIFO o LOTE) y este componente lo envía a /pt/salidas. */}
       <Modal
         open={modalOpen}
         title="Registrar salida de PT"
@@ -681,7 +697,6 @@ export default function SalidasPT() {
         )}
       </Modal>
 
-      {/* Toast centralizado para éxito/error en cargas y registro. */}
       <Toast
         type={toast.type}
         message={toast.message}
