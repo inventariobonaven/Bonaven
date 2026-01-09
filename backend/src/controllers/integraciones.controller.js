@@ -77,12 +77,31 @@ exports.salidaPTDesdeFactura = async (req, res) => {
 
       for (let idx = 0; idx < items.length; idx++) {
         const it = items[idx] || {};
-        const productoId = Number(it.producto_id || 0);
 
-        if (!productoId) {
-          throw new Error(`items[${idx}].producto_id es obligatorio`);
+        // ✅ Aceptar producto_id o micomercio_id
+        const productoIdBody = Number(it.producto_id || 0);
+        const micomercioIdBody =
+          it.micomercio_id !== undefined && it.micomercio_id !== null && it.micomercio_id !== ''
+            ? Number(it.micomercio_id)
+            : null;
+
+        if (!productoIdBody && !micomercioIdBody) {
+          throw new Error(`items[${idx}].producto_id o items[${idx}].micomercio_id es obligatorio`);
         }
 
+        // ✅ Resolver productoId final
+        let productoId = productoIdBody;
+
+        if (!productoId && micomercioIdBody) {
+          const prod = await tx.productos_terminados.findUnique({
+            where: { micomercio_id: micomercioIdBody },
+            select: { id: true },
+          });
+          if (!prod) throw new Error(`No existe producto con micomercio_id=${micomercioIdBody}`);
+          productoId = prod.id;
+        }
+
+        // ✅ A partir de aquí tu código sigue igual:
         const producto = await tx.productos_terminados.findUnique({
           where: { id: productoId },
           select: { id: true, nombre: true, estado: true, unidades_por_empaque: true },

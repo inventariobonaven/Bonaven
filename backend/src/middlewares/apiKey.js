@@ -1,6 +1,7 @@
 // src/middlewares/apiKey.js
 module.exports = function requireApiKey(req, res, next) {
-  const expectedKey = (process.env.API_KEY_PT || '').trim();
+  // 👇 Lee la key que SÍ tienes en .env
+  const expectedKey = (process.env.INTEGRATION_API_KEY || process.env.API_KEY_PT || '').trim();
 
   if (!expectedKey) {
     return res.status(500).json({
