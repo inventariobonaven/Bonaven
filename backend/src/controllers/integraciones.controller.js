@@ -268,3 +268,119 @@ exports.salidaPTDesdeFactura = async (req, res) => {
     return res.status(400).json({ message: error.message });
   }
 };
+exports.retryIngresoPTProduccion = async (req, res) => {
+  try {
+    const produccionId = Number(req.params.produccionId);
+    if (!Number.isFinite(produccionId) || produccionId <= 0) {
+      return res.status(400).json({ message: 'produccionId inválido' });
+    }
+
+    // Buscar el ÚLTIMO outbox para esa producción
+    const row = await prisma.integracion_outbox.findFirst({
+      where: {
+        proveedor: 'MICOMERCIO',
+        tipo: 'INGRESO_PT',
+        ref_id: produccionId, // 👈 tu ref_id es el id de producción
+      },
+      orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
+      select: {
+        id: true,
+        estado: true,
+        intentos: true,
+        last_error: true,
+        last_status: true,
+        updated_at: true,
+      },
+    });
+
+    if (!row) {
+      return res.status(404).json({
+        message: `No existe outbox para PRODUCCION #${produccionId} (INGRESO_PT)`,
+      });
+    }
+
+    const estado = String(row.estado || '').toUpperCase();
+
+    // Si ya fue enviado, no reintentar
+    if (estado === 'ENVIADO') {
+      return res.status(400).json({
+        message: `No se puede reintentar porque el estado actual es: ENVIADO`,
+        outbox_id: row.id,
+      });
+    }
+
+    // ✅ Reset para reintento (PENDIENTE)
+    const updated = await prisma.integracion_outbox.update({
+      where: { id: row.id },
+      data: {
+        estado: 'PENDIENTE',
+        intentos: 0,
+        last_error: null,
+        last_status: null,
+        last_resp: null,
+        updated_at: new Date(),
+      },
+      select: { id: true, estado: true, updated_at: true },
+    });
+
+    // ⚠️ Aquí NO enviamos directo: lo recogerá el worker en el próximo ciclo.
+    // Si quieres envío inmediato, luego hacemos un "runOnce" del worker.
+
+    return res.json({
+      ok: true,
+      message: `Reintento programado para PRODUCCION #${produccionId}`,
+      outbox: updated,
+    });
+  } catch (e) {
+    console.error('[retryIngresoPTProduccion]', e);
+    return res.status(500).json({ message: e?.message || 'Error reintentando outbox' });
+  }
+};
+// POST /api/integraciones/outbox/:outboxId/retry
+// src/controllers/integraciones.controller.js
+exports.retryOutboxById = async (req, res) => {
+  try {
+    const outboxId = Number(req.params.outboxId);
+    if (!Number.isFinite(outboxId) || outboxId <= 0) {
+      return res.status(400).json({ message: 'outboxId inválido' });
+    }
+
+    const row = await prisma.integracion_outbox.findUnique({
+      where: { id: outboxId },
+      select: { id: true, estado: true, proveedor: true, tipo: true, ref_id: true },
+    });
+
+    if (!row) return res.status(404).json({ message: 'Outbox no encontrado' });
+
+    if (String(row.proveedor).toUpperCase() !== 'MICOMERCIO') {
+      return res.status(400).json({ message: 'Este outbox no es de MICOMERCIO' });
+    }
+
+    const estado = String(row.estado || '').toUpperCase();
+    if (estado === 'ENVIADO') {
+      return res.status(400).json({ message: 'No se puede reintentar: ya está ENVIADO' });
+    }
+
+    const updated = await prisma.integracion_outbox.update({
+      where: { id: outboxId },
+      data: {
+        estado: 'PENDIENTE',
+        intentos: 0,
+        last_error: null,
+        last_status: null,
+        last_resp: null,
+        updated_at: new Date(),
+      },
+      select: { id: true, estado: true, updated_at: true },
+    });
+
+    return res.json({
+      ok: true,
+      message: `Reintento programado (outbox #${outboxId})`,
+      outbox: updated,
+    });
+  } catch (e) {
+    console.error('[retryOutboxById]', e);
+    return res.status(500).json({ message: e?.message || 'Error reintentando outbox' });
+  }
+};

@@ -158,10 +158,9 @@ async function registrarProduccion(req, res) {
       if (!receta || !receta.estado) throw new Error('Receta no encontrada o inactiva');
 
       if (!Array.isArray(receta.producto_maps) || receta.producto_maps.length === 0) {
-        return res.status(400).json({
-          message:
-            'La receta no tiene productos mapeados. Configure Receta ↔️ Producto antes de producir.',
-        });
+        throw new Error(
+          'La receta no tiene productos mapeados. Configure Receta ↔️ Producto antes de producir.',
+        );
       }
 
       // 0) Preparar fecha, horas y duración (OBLIGATORIAS)
@@ -191,7 +190,7 @@ async function registrarProduccion(req, res) {
         data: {
           receta_id: receta.id,
           cantidad_producida: qty,
-          fecha: fecha ? parseDateOnlyUTC(fecha) : fechaProd, // anclada para "solo día"
+          fecha: fecha ? parseDateOnlyUTC(fecha) : fechaProd,
           hora_inicio: dtInicio,
           hora_fin: dtFin,
           duracion_minutos: duracionMin,
@@ -234,13 +233,11 @@ async function registrarProduccion(req, res) {
       const mpUsadas = new Set();
       for (const ing of receta.ingredientes_receta) {
         const mpId = Number(ing.materia_prima_id);
-        const porUnidad = Number(ing.cantidad); // ya en unidad base de la MP
+        const porUnidad = Number(ing.cantidad);
         const requerido = porUnidad * qty;
 
-        const tipo = mpTipo.get(mpId); // <- "CULTIVO" para masa madre
-        if (tipo === 'CULTIVO') {
-          continue; // No descontamos stock para CULTIVO
-        }
+        const tipo = mpTipo.get(mpId);
+        if (tipo === 'CULTIVO') continue;
 
         await descontarFIFO(tx, mpId, requerido, {
           motivo: `Consumo producción #${produccion.id} (${receta.nombre})`,
@@ -269,7 +266,7 @@ async function registrarProduccion(req, res) {
       // 4) Ingreso de PT por mapeos
       const codigoBase = (lote_codigo && String(lote_codigo).trim()) || yyyymmdd(fechaProd);
       const resumenPT = [];
-      const afectados = new Set(); // productos a recalcular stock_total listo-venta
+      const afectados = new Set();
 
       const productoIds = receta.producto_maps.map((m) => m.producto_id);
       const productos = await tx.productos_terminados.findMany({
@@ -281,27 +278,32 @@ async function registrarProduccion(req, res) {
           empaque_mp_id: true,
           bolsas_por_unidad: true,
           unidades_por_empaque: true,
+          micomercio_id: true, // ✅ OUTBOX MICOMERCIO
         },
       });
       const prodMap = new Map(productos.map((p) => [p.id, p]));
+
+      // ✅ OUTBOX MICOMERCIO: etapas vendibles (solo estas generan envío)
+      const ETAPAS_ENVIABLES = new Set(['EMPAQUE', 'HORNEO']);
+      const idUserMiComercio = Number(process.env.MICOMERCIO_IDUSER || 0);
 
       for (const m of receta.producto_maps) {
         const producto = prodMap.get(m.producto_id);
         if (!producto) continue;
 
-        // Unidades enteras
         const unidades = Number(m.unidades_por_batch) * qty;
         if (!(unidades > 0)) continue;
 
         const etapaInicial = producto.requiere_congelacion_previa ? 'CONGELADO' : 'EMPAQUE';
 
-        // Vencimiento: SIEMPRE desde la producción (regla global)
         const fechaVto = addDays(fechaProd, Number(m.vida_util_dias || 0));
 
         // Buscar/crear/actualizar lote
         let lote = await tx.lotes_producto_terminado.findFirst({
           where: { producto_id: producto.id, codigo: codigoBase },
         });
+
+        let loteCreadoNuevo = false;
 
         if (!lote) {
           lote = await tx.lotes_producto_terminado.create({
@@ -315,6 +317,7 @@ async function registrarProduccion(req, res) {
               etapa: etapaInicial,
             },
           });
+          loteCreadoNuevo = true;
         } else {
           const newData = { cantidad: toDec(lote.cantidad).plus(unidades).toString() };
           if (!lote.fecha_vencimiento && fechaVto) newData.fecha_vencimiento = fechaVto;
@@ -338,6 +341,53 @@ async function registrarProduccion(req, res) {
           },
         });
 
+        // ✅ OUTBOX MICOMERCIO (solo si etapa vendible)
+        // OJO: si el lote EXISTÍA y se le sumaron unidades, tú decides si quieres reenviar.
+        // Aquí lo hago SIEMPRE que la etapa sea vendible (y exista micomercio_id).
+        if (ETAPAS_ENVIABLES.has(String(etapaInicial)) && producto.micomercio_id) {
+          await tx.integracion_outbox.create({
+            data: {
+              proveedor: 'MICOMERCIO',
+              tipo: 'INGRESO_PT',
+              ref_id: lote.id, // ✅ el LOTE PT, para que tu UI lo cruce por lote_id
+              payload: {
+                IdUser: idUserMiComercio || 0,
+                details: [
+                  {
+                    Cantidad: Number(unidades),
+                    IdProducto: String(producto.micomercio_id),
+                    Comentarios: `Ingreso por producción #${produccion.id} (${receta.nombre})`,
+                  },
+                ],
+                IdProduccion: produccion.id,
+              },
+              estado: 'PENDIENTE',
+              intentos: 0,
+              last_error: null,
+              last_status: null,
+              last_resp: null,
+            },
+          });
+        } else if (ETAPAS_ENVIABLES.has(String(etapaInicial)) && !producto.micomercio_id) {
+          // opcional: dejar log en outbox para que la UI muestre ERROR y "por qué"
+          await tx.integracion_outbox.create({
+            data: {
+              proveedor: 'MICOMERCIO',
+              tipo: 'INGRESO_PT',
+              ref_id: lote.id,
+              payload: {
+                reason: 'producto_sin_micomercio_id',
+                producto_id: producto.id,
+              },
+              estado: 'ERROR',
+              intentos: 0,
+              last_error: `Producto ${producto.id} no tiene micomercio_id`,
+              last_status: null,
+              last_resp: null,
+            },
+          });
+        }
+
         // Descontar bolsas si etapaInicial = EMPAQUE
         if (etapaInicial === 'EMPAQUE') {
           const empaqueId = Number(producto.empaque_mp_id || 0);
@@ -355,7 +405,6 @@ async function registrarProduccion(req, res) {
                 fecha: fechaProd,
               });
 
-              // Sync stock_total MP (empaque)
               const aggMp = await tx.lotes_materia_prima.aggregate({
                 where: { materia_prima_id: empaqueId, estado: 'DISPONIBLE' },
                 _sum: { cantidad: true },
@@ -377,6 +426,8 @@ async function registrarProduccion(req, res) {
           etapa: etapaInicial,
           cantidad: unidades,
           fecha_vencimiento: fechaVto || null,
+          lote_id: lote.id,
+          lote_creado_nuevo: loteCreadoNuevo,
         });
       }
 
@@ -399,7 +450,6 @@ async function registrarProduccion(req, res) {
     res.status(400).json({ message: msg });
   }
 }
-
 async function calcularProduccion(req, res) {
   try {
     const { receta_id, cantidad } = req.body;

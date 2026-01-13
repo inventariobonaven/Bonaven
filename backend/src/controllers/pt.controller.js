@@ -1123,14 +1123,16 @@ exports.eliminarLote = async (req, res) => {
 };
 
 /* --- LISTAR MOVIMIENTOS PT --- */
+// pt.controller.js
 exports.listarMovimientosPT = async (req, res) => {
   try {
     const { q, producto_id, tipo, desde, hasta, pageSize = '300' } = req.query;
 
     const where = {};
     if (producto_id) where.producto_id = Number(producto_id);
-    if (tipo && ['ENTRADA', 'SALIDA', 'AJUSTE'].includes(String(tipo).toUpperCase()))
+    if (tipo && ['ENTRADA', 'SALIDA', 'AJUSTE'].includes(String(tipo).toUpperCase())) {
       where.tipo = String(tipo).toUpperCase();
+    }
 
     if (desde || hasta) {
       where.fecha = {};
@@ -1167,45 +1169,130 @@ exports.listarMovimientosPT = async (req, res) => {
     const prodIds = Array.from(new Set(rows.map((r) => r.producto_id).filter(Boolean)));
     const loteIds = Array.from(new Set(rows.map((r) => r.lote_id).filter(Boolean)));
 
-    const [prods, lotes] = await Promise.all([
+    const refIds = Array.from(
+      new Set(
+        rows
+          .map((r) => r.ref_id)
+          .filter((x) => x !== null && x !== undefined)
+          .map((x) => Number(x))
+          .filter((x) => Number.isFinite(x) && x > 0),
+      ),
+    );
+
+    // buscamos por ref_id (y por lote_id como fallback)
+    const outboxIds = Array.from(new Set([...refIds, ...loteIds].map(Number).filter(Boolean)));
+
+    const [prods, lotes, outbox] = await Promise.all([
       prodIds.length
         ? prisma.productos_terminados.findMany({
             where: { id: { in: prodIds } },
-            select: { id: true, nombre: true },
+            select: { id: true, nombre: true, unidades_por_empaque: true },
           })
         : Promise.resolve([]),
+
       loteIds.length
         ? prisma.lotes_producto_terminado.findMany({
             where: { id: { in: loteIds } },
             select: { id: true, codigo: true },
           })
         : Promise.resolve([]),
+
+      outboxIds.length
+        ? prisma.integracion_outbox.findMany({
+            where: {
+              proveedor: 'MICOMERCIO',
+              ref_id: { in: outboxIds },
+            },
+            orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
+            select: {
+              id: true,
+              ref_id: true,
+              tipo: true,
+              estado: true,
+              intentos: true,
+              last_error: true,
+              last_status: true,
+              last_resp: true,
+              updated_at: true,
+            },
+          })
+        : Promise.resolve([]),
     ]);
 
-    const prodMap = new Map(prods.map((p) => [p.id, p.nombre]));
+    const prodMap = new Map(prods.map((p) => [p.id, p]));
     const loteMap = new Map(lotes.map((l) => [l.id, l.codigo]));
 
+    // ✅ mejor: map por (tipo|ref_id) y por ref_id
+    const outboxByKey = new Map(); // `${tipo}|${ref_id}` -> row más reciente
+    const outboxByRef = new Map(); // ref_id -> row más reciente
+
+    for (const r of outbox) {
+      const key = `${String(r.tipo || '').toUpperCase()}|${Number(r.ref_id)}`;
+      if (!outboxByKey.has(key)) outboxByKey.set(key, r);
+      if (!outboxByRef.has(r.ref_id)) outboxByRef.set(r.ref_id, r);
+    }
+
     const term = (q || '').trim().toLowerCase();
+
     const items = rows
-      .map((m) => ({
-        id: m.id,
-        fecha: m.fecha,
-        producto_id: m.producto_id,
-        producto_nombre: prodMap.get(m.producto_id) || null,
-        lote_id: m.lote_id,
-        lote_codigo: m.lote_id ? loteMap.get(m.lote_id) || null : null,
-        tipo: m.tipo,
-        cantidad: m.cantidad,
-        motivo: m.motivo || null,
-        ref_tipo: m.ref_tipo || null,
-        ref_id: m.ref_id || null,
-      }))
+      .map((m) => {
+        const prod = prodMap.get(m.producto_id) || null;
+
+        // Heurística de tipo outbox esperado según ref_tipo
+        const refTipo = String(m.ref_tipo || '').toUpperCase();
+        const expectedOutboxTipo = refTipo === 'PRODUCCION_PT' ? 'INGRESO_PT' : refTipo; // CAMBIO_ETAPA -> CAMBIO_ETAPA (si así lo guardas)
+
+        const byRefKey = m.ref_id
+          ? outboxByKey.get(`${expectedOutboxTipo}|${Number(m.ref_id)}`)
+          : null;
+
+        // fallback: por ref_id sin tipo
+        const byRefOnly = m.ref_id ? outboxByRef.get(Number(m.ref_id)) : null;
+
+        // fallback extra: por lote_id
+        const byLote = m.lote_id ? outboxByRef.get(Number(m.lote_id)) : null;
+
+        const o = byRefKey || byRefOnly || byLote || null;
+
+        return {
+          id: m.id,
+          fecha: m.fecha,
+          producto_id: m.producto_id,
+          producto_nombre: prod?.nombre || null,
+          unidades_por_empaque: prod?.unidades_por_empaque ?? null,
+
+          lote_id: m.lote_id,
+          lote_codigo: m.lote_id ? loteMap.get(m.lote_id) || null : null,
+
+          tipo: m.tipo,
+          cantidad: m.cantidad,
+          motivo: m.motivo || null,
+          ref_tipo: m.ref_tipo || null,
+          ref_id: m.ref_id || null,
+
+          // ✅ clave para reintentar desde UI
+          micomercio_outbox_id: o?.id ?? null,
+
+          micomercio_estado: o?.estado || null,
+          micomercio_tipo: o?.tipo || null,
+          micomercio_intentos: o?.intentos ?? null,
+          micomercio_last_error: o?.last_error || null,
+          micomercio_last_status: o?.last_status ?? null,
+          micomercio_updated_at: o?.updated_at || null,
+          micomercio_last_resp: o?.last_resp ?? null,
+        };
+      })
       .filter((m) => {
         if (!term) return true;
+        const lote = (m.lote_codigo || '').toLowerCase();
+        const motivo = (m.motivo || '').toLowerCase();
+        const prodName = (m.producto_nombre || '').toLowerCase();
+        const mc = String(m.micomercio_estado || '').toLowerCase();
         return (
-          (m.producto_nombre || '').toLowerCase().includes(term) ||
-          (m.lote_codigo || '').toLowerCase().includes(term) ||
-          (m.motivo || '').toLowerCase().includes(term)
+          prodName.includes(term) ||
+          lote.includes(term) ||
+          motivo.includes(term) ||
+          mc.includes(term)
         );
       });
 
