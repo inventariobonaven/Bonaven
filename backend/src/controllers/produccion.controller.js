@@ -285,7 +285,11 @@ async function registrarProduccion(req, res) {
 
       // ✅ OUTBOX MICOMERCIO: etapas vendibles (solo estas generan envío)
       const ETAPAS_ENVIABLES = new Set(['EMPAQUE', 'HORNEO']);
-      const idUserMiComercio = Number(process.env.MICOMERCIO_IDUSER || 0);
+
+      const idUserMiComercio = Number(process.env.MICOMERCIO_IDUSER);
+      if (!idUserMiComercio) {
+        throw new Error('Falta configurar MICOMERCIO_IDUSER en el servidor (Render)');
+      }
 
       for (const m of receta.producto_maps) {
         const producto = prodMap.get(m.producto_id);
@@ -351,7 +355,7 @@ async function registrarProduccion(req, res) {
               tipo: 'INGRESO_PT',
               ref_id: lote.id, // ✅ el LOTE PT, para que tu UI lo cruce por lote_id
               payload: {
-                IdUser: idUserMiComercio || 0,
+                IdUser: idUserMiComercio,
                 details: [
                   {
                     Cantidad: Number(unidades),
