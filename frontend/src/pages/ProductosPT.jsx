@@ -78,6 +78,12 @@ function Confirm({ open, title = 'Confirmar', message, onCancel, onConfirm }) {
 
 /* ===== Helpers ===== */
 const toInt = (n) => (Number.isFinite(Number(n)) ? Math.round(Number(n)) : 0);
+const toNumberOrNull = (v) => {
+  const s = String(v ?? '').trim();
+  if (s === '') return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+};
 
 /** Muestra stock total en paquetes cuando aplica */
 function formatStockTotal(prod) {
@@ -93,6 +99,14 @@ function formatStockTotal(prod) {
   return `${uds} ud`;
 }
 
+function formatMoneyCOP(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  // Si no quieres formato, cambia esto a: return String(n)
+  return n.toLocaleString('es-CO', { maximumFractionDigits: 2 });
+}
+
 /* ========== Form Crear/Editar ========== */
 const emptyForm = {
   nombre: '',
@@ -102,7 +116,10 @@ const emptyForm = {
   unidades_por_empaque: '',
   descripcion_contenido: '',
   requiere_congelacion_previa: false,
-  micomercio_id: '', // ✅ nuevo
+  micomercio_id: '',
+
+  // ✅ NUEVO
+  precio_venta_unitario: '',
 };
 
 function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting }) {
@@ -117,7 +134,12 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
     const mc = String(form?.micomercio_id ?? '').trim();
     const okMiComercio = mc === '' || (Number.isInteger(Number(mc)) && Number(mc) > 0);
 
-    return okNombre && okBolsas && okMiComercio;
+    // ✅ precio_venta_unitario: opcional, pero si viene debe ser >= 0
+    const pv = String(form?.precio_venta_unitario ?? '').trim();
+    const pvNum = pv === '' ? null : Number(pv);
+    const okPrecio = pv === '' || (Number.isFinite(pvNum) && pvNum >= 0);
+
+    return okNombre && okBolsas && okMiComercio && okPrecio;
   }, [form]);
 
   function handleChange(e) {
@@ -130,6 +152,7 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
     if (!canSubmit) return;
 
     const mc = String(form.micomercio_id ?? '').trim();
+    const pv = String(form.precio_venta_unitario ?? '').trim();
 
     onSubmit({
       nombre: form.nombre.trim(),
@@ -140,10 +163,16 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
       descripcion_contenido: form.descripcion_contenido?.trim() || null,
       requiere_congelacion_previa: !!form.requiere_congelacion_previa,
 
-      // ✅ enviar micomercio_id como número o null
       micomercio_id: mc === '' ? null : Number(mc),
+
+      // ✅ NUEVO: precio_venta_unitario como number o null
+      precio_venta_unitario: pv === '' ? null : Number(pv),
     });
   }
+
+  const pv = String(form?.precio_venta_unitario ?? '').trim();
+  const pvNum = pv === '' ? null : Number(pv);
+  const showPrecioError = pv !== '' && !(Number.isFinite(pvNum) && pvNum >= 0);
 
   return (
     <form onSubmit={submit}>
@@ -170,6 +199,30 @@ function ProductoForm({ initial = emptyForm, empaques = [], onSubmit, submitting
           <div className="muted" style={{ marginTop: 4 }}>
             Es el IdProducto en MiComercio (si aún no lo tienes, déjalo vacío).
           </div>
+        </div>
+
+        {/* ✅ NUEVO */}
+        <div>
+          <label>Precio de venta unitario (opcional)</label>
+          <input
+            name="precio_venta_unitario"
+            type="number"
+            inputMode="numeric"
+            min="0"
+            step="0.01"
+            placeholder="Ej. 5000"
+            value={form.precio_venta_unitario ?? ''}
+            onChange={handleChange}
+          />
+          <div className="muted" style={{ marginTop: 4 }}>
+            Se guarda en el producto y se envía a facturación como <b>Costo</b> cuando haya ingreso
+            PT / cambio de etapa.
+          </div>
+          {showPrecioError && (
+            <div style={{ marginTop: 6, color: '#a8071a', fontSize: 12 }}>
+              Debe ser un número válido y mayor o igual a 0.
+            </div>
+          )}
         </div>
 
         <div>
@@ -315,7 +368,6 @@ export default function ProductosPT() {
     }
   }
 
-  // ✅ FIX: usar PATCH /productos/:id/estado (según tu route)
   async function toggleEstado(id, estadoActual) {
     try {
       await api.patch(`/productos/${id}/estado`, { estado: !estadoActual });
@@ -416,6 +468,7 @@ export default function ProductosPT() {
                 <th style={{ width: 80 }}>ID</th>
                 <th>Nombre</th>
                 <th style={{ width: 130 }}>MiComercio ID</th>
+                <th style={{ width: 150 }}>Precio unit.</th>
                 <th>Empaque</th>
                 <th>Bolsas/und</th>
                 <th>Und/Empaque</th>
@@ -429,7 +482,7 @@ export default function ProductosPT() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={10} style={{ padding: 14 }}>
+                  <td colSpan={11} style={{ padding: 14 }}>
                     Cargando…
                   </td>
                 </tr>
@@ -437,7 +490,7 @@ export default function ProductosPT() {
 
               {!loading && sorted.length === 0 && (
                 <tr>
-                  <td colSpan={10} style={{ padding: 14, textAlign: 'center' }}>
+                  <td colSpan={11} style={{ padding: 14, textAlign: 'center' }}>
                     Sin resultados
                   </td>
                 </tr>
@@ -449,6 +502,7 @@ export default function ProductosPT() {
                     <td>{it.id}</td>
                     <td>{it.nombre}</td>
                     <td>{it.micomercio_id ?? '—'}</td>
+                    <td>{formatMoneyCOP(it.precio_venta_unitario)}</td>
                     <td>{it.materias_primas_empaque?.nombre || '-'}</td>
                     <td>{String(it.bolsas_por_unidad ?? '1')}</td>
                     <td>{it.unidades_por_empaque ?? '-'}</td>
@@ -481,7 +535,14 @@ export default function ProductosPT() {
                               unidades_por_empaque: it.unidades_por_empaque ?? '',
                               descripcion_contenido: it.descripcion_contenido ?? '',
                               requiere_congelacion_previa: !!it.requiere_congelacion_previa,
-                              micomercio_id: it.micomercio_id ?? '', // ✅
+                              micomercio_id: it.micomercio_id ?? '',
+
+                              // ✅ NUEVO: llevarlo al input como string (o vacío)
+                              precio_venta_unitario:
+                                it.precio_venta_unitario === null ||
+                                it.precio_venta_unitario === undefined
+                                  ? ''
+                                  : String(it.precio_venta_unitario),
                             });
                             setModalOpen(true);
                           }}

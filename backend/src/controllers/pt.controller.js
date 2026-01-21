@@ -543,6 +543,8 @@ exports.ingresarPT = async (req, res) => {
           bolsas_por_unidad: true,
           unidades_por_empaque: true,
           micomercio_id: true,
+          // ✅ NUEVO: precio de venta unitario (opcional)
+          precio_venta_unitario: true,
         },
       });
       if (!prod || prod.estado === false) throw new Error('Producto no encontrado o inactivo');
@@ -614,31 +616,34 @@ exports.ingresarPT = async (req, res) => {
       await recalcStockPTReady(tx, Number(producto_id));
 
       // ✅ Encolar ingreso a MiComercio SOLO si etapa vendible (EMPAQUE/HORNEO)
-      if (['EMPAQUE', 'HORNEO'].includes(dest)) {
-        const prodMico = await tx.productos_terminados.findUnique({
-          where: { id: Number(producto_id) },
-          select: { micomercio_id: true },
+      if (['EMPAQUE', 'HORNEO'].includes(dest) && prod.micomercio_id) {
+        const idUser = Number(process.env.MICOMERCIO_IDUSER || 0);
+        if (!idUser) throw new Error('Falta configurar MICOMERCIO_IDUSER en el servidor');
+
+        // ✅ precio opcional -> se manda como "Costo" (según el contrato actual)
+        const precio =
+          prod.precio_venta_unitario !== null && prod.precio_venta_unitario !== undefined
+            ? Number(prod.precio_venta_unitario)
+            : undefined;
+
+        const payload = {
+          IdUser: idUser,
+          IdProduccion: lote.id,
+          details: [
+            {
+              IdProducto: String(prod.micomercio_id),
+              Cantidad: Number(cantidad),
+              ...(precio !== undefined ? { Costo: precio } : {}),
+              Comentarios: `Ingreso PT ${dest} (lote ${code})`,
+            },
+          ],
+        };
+
+        await enqueueOutbox(tx, {
+          tipo: 'INGRESO_PT',
+          ref_id: lote.id,
+          payload,
         });
-
-        if (prodMico?.micomercio_id) {
-          const payload = {
-            IdUser: Number(process.env.MICOMERCIO_IDUSER || 0),
-            IdProduccion: lote.id,
-            details: [
-              {
-                IdProducto: String(prodMico.micomercio_id),
-                Cantidad: Number(cantidad),
-                Comentarios: `Ingreso PT ${dest} (lote ${code})`,
-              },
-            ],
-          };
-
-          await enqueueOutbox(tx, {
-            tipo: 'INGRESO_PT',
-            ref_id: lote.id,
-            payload,
-          });
-        }
       }
 
       return { lote_id: lote.id, producto_id: Number(producto_id), etapa: dest };
@@ -681,6 +686,7 @@ exports.moverEtapa = async (req, res) => {
               unidades_por_empaque: true,
               requiere_congelacion_previa: true,
               micomercio_id: true,
+              precio_venta_unitario: true,
             },
           },
         },
@@ -721,7 +727,7 @@ exports.moverEtapa = async (req, res) => {
       const suf = dest === 'EMPAQUE' ? 'E' : 'H';
       const codigoDestino = `${src.codigo}-${suf}`;
 
-      // upsert destino por (producto,codigo,etapa) (tu uq_ptprod_codigo_etapa)
+      // upsert destino por (producto,codigo,etapa)
       let dst = await tx.lotes_producto_terminado.findFirst({
         where: { producto_id: src.producto_id, codigo: codigoDestino, etapa: dest },
       });
@@ -801,7 +807,6 @@ exports.moverEtapa = async (req, res) => {
           cantidad: fromM(nuevaDstM),
           estado: 'DISPONIBLE',
           etapa: dest,
-          // mantén fecha_ingreso original del destino si ya existía
           fecha_ingreso: dst.fecha_ingreso || fechaMov,
           ...(dstVto ? { fecha_vencimiento: dstVto } : {}),
         },
@@ -824,16 +829,26 @@ exports.moverEtapa = async (req, res) => {
       // Recalcular stock vendible
       await recalcStockPTReady(tx, src.producto_id);
 
-      // ✅ Encolar ingreso a MiComercio (destino vendible + producto mapeado)
+      // ✅ Outbox MiComercio (destino vendible + mapeado) + ✅ Costo = precio_venta_unitario
       const micoId = src.productos_terminados?.micomercio_id;
       if (micoId && ['EMPAQUE', 'HORNEO'].includes(dest)) {
+        const idUser = Number(process.env.MICOMERCIO_IDUSER || 0);
+        if (!idUser) throw new Error('Falta configurar MICOMERCIO_IDUSER en el servidor');
+
+        const precio =
+          src.productos_terminados?.precio_venta_unitario !== null &&
+          src.productos_terminados?.precio_venta_unitario !== undefined
+            ? Number(src.productos_terminados.precio_venta_unitario)
+            : undefined;
+
         const payload = {
-          IdUser: Number(process.env.MICOMERCIO_IDUSER || 0),
+          IdUser: idUser,
           IdProduccion: dst.id,
           details: [
             {
               IdProducto: String(micoId),
               Cantidad: Number(qty),
+              ...(precio !== undefined ? { Costo: precio } : {}),
               Comentarios: `Cambio etapa CONGELADO→${dest} (origen ${src.codigo} destino ${codigoDestino})`,
             },
           ],

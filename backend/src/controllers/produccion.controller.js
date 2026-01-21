@@ -126,6 +126,13 @@ function calcularBolsasNecesarias(cantidadUnidades, bolsas_por_unidad, unidades_
   return 0;
 }
 
+// ✅ helper: decimal/strings a number limpio para el "Costo"
+function toNumberOrNull(v) {
+  if (v === null || v === undefined) return null;
+  const n = Number(String(v));
+  return Number.isFinite(n) ? n : null;
+}
+
 async function registrarProduccion(req, res) {
   const { receta_id, cantidad_producida, fecha, hora_inicio, hora_fin, observacion, lote_codigo } =
     req.body;
@@ -279,6 +286,9 @@ async function registrarProduccion(req, res) {
           bolsas_por_unidad: true,
           unidades_por_empaque: true,
           micomercio_id: true, // ✅ OUTBOX MICOMERCIO
+
+          // ✅ nuevo
+          precio_venta_unitario: true,
         },
       });
       const prodMap = new Map(productos.map((p) => [p.id, p]));
@@ -346,9 +356,17 @@ async function registrarProduccion(req, res) {
         });
 
         // ✅ OUTBOX MICOMERCIO (solo si etapa vendible)
-        // OJO: si el lote EXISTÍA y se le sumaron unidades, tú decides si quieres reenviar.
-        // Aquí lo hago SIEMPRE que la etapa sea vendible (y exista micomercio_id).
         if (ETAPAS_ENVIABLES.has(String(etapaInicial)) && producto.micomercio_id) {
+          // ✅ nuevo: costo (precio venta unitario) opcional
+          const costo = toNumberOrNull(producto.precio_venta_unitario);
+
+          const detail = {
+            Cantidad: Number(unidades),
+            IdProducto: String(producto.micomercio_id),
+            Comentarios: `Ingreso por producción #${produccion.id} (${receta.nombre})`,
+            ...(costo !== null ? { Costo: costo } : {}), // ✅ manda Costo solo si existe
+          };
+
           await tx.integracion_outbox.create({
             data: {
               proveedor: 'MICOMERCIO',
@@ -356,14 +374,9 @@ async function registrarProduccion(req, res) {
               ref_id: lote.id, // ✅ el LOTE PT, para que tu UI lo cruce por lote_id
               payload: {
                 IdUser: idUserMiComercio,
-                details: [
-                  {
-                    Cantidad: Number(unidades),
-                    IdProducto: String(producto.micomercio_id),
-                    Comentarios: `Ingreso por producción #${produccion.id} (${receta.nombre})`,
-                  },
-                ],
                 IdProduccion: produccion.id,
+                cierre: 1, // ✅ según el ejemplo actualizado (si no aplica, lo quitamos)
+                details: [detail],
               },
               estado: 'PENDIENTE',
               intentos: 0,
@@ -454,6 +467,7 @@ async function registrarProduccion(req, res) {
     res.status(400).json({ message: msg });
   }
 }
+
 async function calcularProduccion(req, res) {
   try {
     const { receta_id, cantidad } = req.body;
@@ -689,7 +703,6 @@ async function insumosProduccion(req, res) {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ message: 'id inválido' });
 
-    // Cabecera con cantidad producida e ingredientes de la receta (incluye tipo de MP)
     const prodInfo = await prisma.producciones.findUnique({
       where: { id },
       select: {
@@ -704,7 +717,7 @@ async function insumosProduccion(req, res) {
               select: {
                 id: true,
                 materia_prima_id: true,
-                cantidad: true, // en unidad base de la MP
+                cantidad: true,
                 materias_primas: {
                   select: { id: true, nombre: true, unidad_medida: true, tipo: true },
                 },
@@ -716,7 +729,6 @@ async function insumosProduccion(req, res) {
     });
     if (!prodInfo) return res.status(404).json({ message: 'Producción no encontrada' });
 
-    // Movimientos de stock (para todo lo que sí descuenta)
     const movs = await prisma.movimientos_materia_prima.findMany({
       where: { ref_tipo: 'PRODUCCION', ref_id: id, tipo: 'SALIDA' },
       orderBy: [{ fecha: 'asc' }, { id: 'asc' }],
@@ -726,10 +738,8 @@ async function insumosProduccion(req, res) {
       },
     });
 
-    // Agregador común (sumamos movimientos y luego CULTIVO)
-    const map = new Map(); // mpId -> { mp, total, detalle[] }
+    const map = new Map();
 
-    // 1) Volcar movimientos (lo existente)
     for (const m of movs) {
       const mpId = m.materia_prima_id;
       const key = String(mpId);
@@ -740,7 +750,7 @@ async function insumosProduccion(req, res) {
         total: toDec(0),
         detalle: [],
       };
-      const cant = toDec(m.cantidad || 0); // en unidad base
+      const cant = toDec(m.cantidad || 0);
       curr.total = curr.total.plus(cant);
       curr.detalle.push({
         lote_id: m.lote_id,
@@ -751,8 +761,6 @@ async function insumosProduccion(req, res) {
       map.set(key, curr);
     }
 
-    // 2) Añadir CULTIVO (masa madre) desde ingredientes de la receta
-    //    No genera movimiento de stock, pero sí debe aparecer en trazabilidad.
     const qtyProducida = toDec(prodInfo.cantidad_producida || 0);
     const ings = Array.isArray(prodInfo.recetas?.ingredientes_receta)
       ? prodInfo.recetas.ingredientes_receta
@@ -761,11 +769,10 @@ async function insumosProduccion(req, res) {
     for (const ing of ings) {
       const mp = ing.materias_primas;
       const tipo = String(mp?.tipo || '').toUpperCase();
-
-      if (tipo !== 'CULTIVO') continue; // solo masa madre
+      if (tipo !== 'CULTIVO') continue;
 
       const mpId = Number(ing.materia_prima_id);
-      const requerido = toDec(ing.cantidad || 0).times(qtyProducida); // en unidad base
+      const requerido = toDec(ing.cantidad || 0).times(qtyProducida);
 
       const key = String(mpId);
       const curr = map.get(key) || {
@@ -777,7 +784,6 @@ async function insumosProduccion(req, res) {
       };
 
       curr.total = curr.total.plus(requerido);
-      // Colocamos un "detalle sintético" sin lote
       curr.detalle.push({
         lote_id: null,
         lote_codigo: null,
@@ -792,8 +798,8 @@ async function insumosProduccion(req, res) {
       materia_prima_id: x.materia_prima_id,
       nombre: x.nombre,
       unidad_base: x.unidad_base,
-      total: x.total.toString(), // en unidad base
-      detalle: x.detalle, // [{ lote_id|null, lote_codigo, fecha_vencimiento, cantidad }]
+      total: x.total.toString(),
+      detalle: x.detalle,
     }));
 
     res.json({ items });

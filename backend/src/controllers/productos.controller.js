@@ -18,6 +18,14 @@ const isPositiveDec = (x) => {
   }
 };
 
+const isNonNegativeDec = (x) => {
+  try {
+    return toDec(x).gte(0);
+  } catch {
+    return false;
+  }
+};
+
 const toPosIntOrNull = (x) => {
   if (x === null || x === undefined || x === '') return null;
   const n = parseInt(x, 10);
@@ -58,8 +66,9 @@ exports.listar = async (req, res) => {
 
     if (micomercio_id !== undefined && micomercio_id !== '') {
       const ext = toPosIntOrNull(micomercio_id);
-      if (ext === null)
+      if (ext === null) {
         return res.status(400).json({ message: 'micomercio_id inválido (debe ser entero > 0)' });
+      }
       where.micomercio_id = ext;
     }
 
@@ -120,10 +129,26 @@ exports.crear = async (req, res) => {
       descripcion_contenido = null,
       requiere_congelacion_previa = false,
       micomercio_id = null,
+
+      // ✅ NUEVO (opcional)
+      precio_venta_unitario = null,
     } = req.body;
 
     if (!nombre || String(nombre).trim().length < 2) {
       return res.status(400).json({ message: 'Nombre es obligatorio (mínimo 2 caracteres)' });
+    }
+
+    // ✅ precio_venta_unitario (decimal >= 0 o null)
+    let precioVentaData = null;
+    if (
+      precio_venta_unitario !== null &&
+      precio_venta_unitario !== undefined &&
+      precio_venta_unitario !== ''
+    ) {
+      if (!isNonNegativeDec(precio_venta_unitario)) {
+        return res.status(400).json({ message: 'precio_venta_unitario debe ser un decimal >= 0' });
+      }
+      precioVentaData = toDec(precio_venta_unitario);
     }
 
     // micomercio_id (int > 0 o null)
@@ -177,6 +202,9 @@ exports.crear = async (req, res) => {
         descripcion_contenido: descripcion_contenido ? String(descripcion_contenido).trim() : null,
         requiere_congelacion_previa: toBool(requiere_congelacion_previa, false),
         micomercio_id: micomercioId,
+
+        // ✅ NUEVO
+        precio_venta_unitario: precioVentaData,
       },
       include: {
         materias_primas_empaque: {
@@ -189,7 +217,6 @@ exports.crear = async (req, res) => {
   } catch (e) {
     console.error('[productos.crear]', e);
 
-    // P2002: unique violation (nombre o micomercio_id)
     if (e?.code === 'P2002') {
       const target = Array.isArray(e?.meta?.target)
         ? e.meta.target.join(',')
@@ -226,7 +253,25 @@ exports.actualizar = async (req, res) => {
       descripcion_contenido,
       requiere_congelacion_previa,
       micomercio_id,
+
+      // ✅ NUEVO
+      precio_venta_unitario,
     } = req.body;
+
+    // ✅ precio_venta_unitario (permite null para borrar)
+    let precioVentaData;
+    if (precio_venta_unitario !== undefined) {
+      if (precio_venta_unitario === null || precio_venta_unitario === '') {
+        precioVentaData = null;
+      } else {
+        if (!isNonNegativeDec(precio_venta_unitario)) {
+          return res
+            .status(400)
+            .json({ message: 'precio_venta_unitario debe ser un decimal >= 0' });
+        }
+        precioVentaData = toDec(precio_venta_unitario);
+      }
+    }
 
     // micomercio_id (permite null para desvincular)
     let micomercioIdData;
@@ -304,6 +349,9 @@ exports.actualizar = async (req, res) => {
           ? { requiere_congelacion_previa: toBool(requiere_congelacion_previa) }
           : {}),
         ...(micomercio_id !== undefined ? { micomercio_id: micomercioIdData } : {}),
+
+        // ✅ NUEVO
+        ...(precio_venta_unitario !== undefined ? { precio_venta_unitario: precioVentaData } : {}),
       },
       include: {
         materias_primas_empaque: {
