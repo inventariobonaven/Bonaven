@@ -286,9 +286,7 @@ async function registrarProduccion(req, res) {
           bolsas_por_unidad: true,
           unidades_por_empaque: true,
           micomercio_id: true, // ✅ OUTBOX MICOMERCIO
-
-          // ✅ nuevo
-          precio_venta_unitario: true,
+          precio_venta_unitario: true, // ✅ NUEVO
         },
       });
       const prodMap = new Map(productos.map((p) => [p.id, p]));
@@ -314,7 +312,7 @@ async function registrarProduccion(req, res) {
 
         // Buscar/crear/actualizar lote
         let lote = await tx.lotes_producto_terminado.findFirst({
-          where: { producto_id: producto.id, codigo: codigoBase },
+          where: { producto_id: producto.id, codigo: codigoBase, etapa: etapaInicial },
         });
 
         let loteCreadoNuevo = false;
@@ -341,8 +339,8 @@ async function registrarProduccion(req, res) {
           });
         }
 
-        // Movimiento ENTRADA PT
-        await tx.stock_producto_terminado.create({
+        // ✅ Movimiento ENTRADA PT (CAPTURANDO ID)  ←←← CLAVE OPCIÓN C
+        const movEntrada = await tx.stock_producto_terminado.create({
           data: {
             producto_id: producto.id,
             lote_id: lote.id,
@@ -353,29 +351,35 @@ async function registrarProduccion(req, res) {
             ref_tipo: 'PRODUCCION_PT',
             ref_id: produccion.id,
           },
+          select: { id: true },
         });
 
         // ✅ OUTBOX MICOMERCIO (solo si etapa vendible)
         if (ETAPAS_ENVIABLES.has(String(etapaInicial)) && producto.micomercio_id) {
-          // ✅ nuevo: costo (precio venta unitario) opcional
           const costo = toNumberOrNull(producto.precio_venta_unitario);
 
           const detail = {
             Cantidad: Number(unidades),
             IdProducto: String(producto.micomercio_id),
             Comentarios: `Ingreso por producción #${produccion.id} (${receta.nombre})`,
-            ...(costo !== null ? { Costo: costo } : {}), // ✅ manda Costo solo si existe
+            ...(costo !== null ? { Costo: costo } : {}),
           };
 
+          // ✅ OPCIÓN C: ref_id = movEntrada.id (único por movimiento)
           await tx.integracion_outbox.create({
             data: {
               proveedor: 'MICOMERCIO',
               tipo: 'INGRESO_PT',
-              ref_id: lote.id, // ✅ el LOTE PT, para que tu UI lo cruce por lote_id
+              ref_id: movEntrada.id,
               payload: {
                 IdUser: idUserMiComercio,
                 IdProduccion: produccion.id,
-                cierre: 1, // ✅ según el ejemplo actualizado (si no aplica, lo quitamos)
+                cierre: 1,
+                // 🔎 extras para trazabilidad/UI:
+                producto_id: producto.id,
+                lote_id: lote.id,
+                lote_codigo: lote.codigo,
+                etapa: etapaInicial,
                 details: [detail],
               },
               estado: 'PENDIENTE',
@@ -391,10 +395,12 @@ async function registrarProduccion(req, res) {
             data: {
               proveedor: 'MICOMERCIO',
               tipo: 'INGRESO_PT',
-              ref_id: lote.id,
+              ref_id: movEntrada.id, // ✅ también único, aunque quede en ERROR
               payload: {
                 reason: 'producto_sin_micomercio_id',
                 producto_id: producto.id,
+                lote_id: lote.id,
+                produccion_id: produccion.id,
               },
               estado: 'ERROR',
               intentos: 0,
@@ -445,6 +451,7 @@ async function registrarProduccion(req, res) {
           fecha_vencimiento: fechaVto || null,
           lote_id: lote.id,
           lote_creado_nuevo: loteCreadoNuevo,
+          mov_entrada_id: movEntrada.id, // ✅ útil para debug/UI
         });
       }
 

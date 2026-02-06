@@ -3,7 +3,7 @@ import axios from 'axios';
 
 /** Normaliza la URL del backend y garantiza el sufijo /api */
 function buildApiBase(raw) {
-  const root = (raw || 'http://localhost:3001').replace(/\/+$/, '');
+  const root = (raw || 'http://localhost:3002').replace(/\/+$/, '');
   return /\/api$/i.test(root) ? root : `${root}/api`;
 }
 
