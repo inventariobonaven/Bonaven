@@ -48,6 +48,11 @@ exports.salidaPTDesdeFactura = async (req, res) => {
   try {
     const { factura_id, fecha, items } = req.body;
 
+    // Log de toda request entrante para poder auditar que llego y que no
+    console.log(
+      `[INTEGRACION-IN] ${new Date().toISOString()} factura_id=${factura_id ?? 'MISSING'} items=${Array.isArray(items) ? items.length : 'INVALID'} body=${JSON.stringify(req.body)}`,
+    );
+
     if (!factura_id) return res.status(400).json({ message: 'factura_id es obligatorio' });
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: 'items es obligatorio y debe ser un arreglo' });
@@ -257,6 +262,10 @@ exports.salidaPTDesdeFactura = async (req, res) => {
       return descuentos;
     });
 
+    console.log(
+      `[INTEGRACION-IN] ${new Date().toISOString()} factura_id=${factura_id} EXITO items_procesados=${result.length}`,
+    );
+
     return res.json({
       ok: true,
       message: 'Salida registrada correctamente (FACTURA)',
@@ -265,6 +274,9 @@ exports.salidaPTDesdeFactura = async (req, res) => {
       items_procesados: result,
     });
   } catch (error) {
+    console.error(
+      `[INTEGRACION-IN] ${new Date().toISOString()} factura_id=${req.body?.factura_id ?? 'UNKNOWN'} ERROR=${error.message}`,
+    );
     return res.status(400).json({ message: error.message });
   }
 };
